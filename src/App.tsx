@@ -26,14 +26,14 @@ import {
 import { motion, AnimatePresence } from 'motion/react';
 import TerminalComponent from './components/TerminalComponent';
 import Modal from './components/Modal';
-import { Workspace, Environment, Tab, EnvVar } from './types';
+import { Workspace, Environment, Tab, EnvVar, QuickCommand } from './types';
 
 export default function App() {
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [environments, setEnvironments] = useState<Environment[]>([]);
   const [tabs, setTabs] = useState<Tab[]>([]);
+  const [quickCommands, setQuickCommands] = useState<QuickCommand[]>([]);
   const [activeTabId, setActiveTabId] = useState<string | null>(null);
-  const [selectedEnvId, setSelectedEnvId] = useState<string | null>(null);
   const [defaultShell, setDefaultShell] = useState<string>('');
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
@@ -46,6 +46,8 @@ export default function App() {
   const [editingWs, setEditingWs] = useState<Workspace | null>(null);
   const [isTabSettingsModalOpen, setIsTabSettingsModalOpen] = useState(false);
   const [editingTabSettings, setEditingTabSettings] = useState<Tab | null>(null);
+  const [isQuickCommandModalOpen, setIsQuickCommandModalOpen] = useState(false);
+  const [editingQuickCommand, setEditingQuickCommand] = useState<QuickCommand | null>(null);
 
   // Form States
   const [envName, setEnvName] = useState('');
@@ -55,15 +57,18 @@ export default function App() {
   const [wsBasePath, setWsBasePath] = useState('');
   const [wsDirs, setWsDirs] = useState<{ name: string; path: string }[]>([]);
   const [tabLocalVars, setTabLocalVars] = useState<EnvVar[]>([]);
-  const [tabEnvId, setTabEnvId] = useState<string | undefined>(undefined);
   const [expandedWorkspaces, setExpandedWorkspaces] = useState<Set<string>>(new Set());
   const [collapsedEnvGroups, setCollapsedEnvGroups] = useState<Set<string>>(new Set());
+  const [qcName, setQcName] = useState('');
+  const [qcCommand, setQcCommand] = useState('');
+  const [qcCwd, setQcCwd] = useState('');
   const [importStatus, setImportStatus] = useState<{ message: string; type: 'info' | 'error' | 'success' } | null>(null);
 
   // Fetch initial data
   useEffect(() => {
     fetch('/api/workspaces').then(res => res.json()).then(setWorkspaces);
     fetch('/api/environments').then(res => res.json()).then(setEnvironments);
+    fetch('/api/quick-commands').then(res => res.json()).then(setQuickCommands);
   }, []);
 
   const getGroupColor = (name: string) => {
@@ -84,7 +89,7 @@ export default function App() {
     return colors[Math.abs(hash) % colors.length];
   };
 
-  const addTab = (cwd: string = '.', title: string = 'Terminal', groupName?: string) => {
+  const addTab = (cwd: string = '.', title: string = 'Terminal', groupName?: string, initialCommand?: string) => {
     const id = Math.random().toString(36).substr(2, 9);
     const effectiveGroupName = groupName || (activeEnv ? activeEnv.name : undefined);
     const newTab: Tab = { 
@@ -94,7 +99,8 @@ export default function App() {
       shell: defaultShell || undefined,
       envId: undefined, // Follow global selection by default
       groupName: effectiveGroupName,
-      groupColor: effectiveGroupName ? getGroupColor(effectiveGroupName) : undefined
+      groupColor: effectiveGroupName ? getGroupColor(effectiveGroupName) : undefined,
+      initialCommand
     };
     setTabs(prev => [...prev, newTab]);
     setActiveTabId(id);
@@ -380,8 +386,57 @@ export default function App() {
   const openTabSettingsModal = (tab: Tab) => {
     setEditingTabSettings(tab);
     setTabLocalVars(tab.localVariables || []);
-    setTabEnvId(tab.envId);
     setIsTabSettingsModalOpen(true);
+  };
+
+  const openQuickCommandModal = (qc?: QuickCommand) => {
+    if (qc) {
+      setEditingQuickCommand(qc);
+      setQcName(qc.name);
+      setQcCommand(qc.command);
+      setQcCwd(qc.cwd || '');
+    } else {
+      setEditingQuickCommand(null);
+      setQcName('');
+      setQcCommand('');
+      setQcCwd('');
+    }
+    setIsQuickCommandModalOpen(true);
+  };
+
+  const handleSaveQuickCommand = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const qcData: QuickCommand = {
+      id: editingQuickCommand?.id || Math.random().toString(36).substr(2, 9),
+      name: qcName,
+      command: qcCommand,
+      cwd: qcCwd || undefined
+    };
+
+    const res = await fetch('/api/quick-commands', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(qcData)
+    });
+
+    if (res.ok) {
+      const updatedRes = await fetch('/api/quick-commands');
+      const updatedData = await updatedRes.json();
+      setQuickCommands(updatedData);
+      setIsQuickCommandModalOpen(false);
+    }
+  };
+
+  const deleteQuickCommand = async (id: string) => {
+    if (!window.confirm('Delete this quick command?')) return;
+    const res = await fetch(`/api/quick-commands/${id}`, { method: 'DELETE' });
+    if (res.ok) {
+      setQuickCommands(prev => prev.filter(q => q.id !== id));
+    }
+  };
+
+  const runQuickCommand = (qc: QuickCommand) => {
+    addTab(qc.cwd || '.', qc.name, undefined, qc.command);
   };
 
   const handleSaveTabSettings = (e: React.FormEvent) => {
@@ -391,13 +446,11 @@ export default function App() {
     const validVars = tabLocalVars.filter(v => v.key.trim() !== '');
     setTabs(prev => prev.map(t => t.id === editingTabSettings.id ? { 
       ...t, 
-      localVariables: validVars,
-      envId: tabEnvId
+      localVariables: validVars
     } : t));
     setIsTabSettingsModalOpen(false);
     setEditingTabSettings(null);
     setTabLocalVars([]);
-    setTabEnvId(undefined);
   };
 
   const deleteWorkspace = (id: string) => {
@@ -409,7 +462,6 @@ export default function App() {
   const deleteEnvironment = (id: string) => {
     fetch(`/api/environments/${id}`, { method: 'DELETE' }).then(() => {
       setEnvironments(prev => prev.filter(e => e.id !== id));
-      if (selectedEnvId === id) setSelectedEnvId(null);
     });
   };
 
@@ -568,7 +620,7 @@ export default function App() {
   };
 
   const activeTab = tabs.find(t => t.id === activeTabId);
-  const currentEnvId = activeTab?.envId || selectedEnvId;
+  const currentEnvId = activeTab?.envId;
   const activeEnv = environments.find(e => e.id === currentEnvId);
   const localVarsCount = activeTab?.localVariables?.length || 0;
 
@@ -714,6 +766,45 @@ export default function App() {
               </button>
             </div>
           )}
+          {/* Quick Commands */}
+          <div className="mb-6">
+            <div className="flex items-center justify-between px-2 mb-2">
+              <span className="text-xs font-bold text-white/40 uppercase tracking-wider flex items-center gap-2">
+                <Play size={12} /> Quick Commands
+              </span>
+              <button onClick={() => openQuickCommandModal()} className="p-1 hover:bg-white/5 rounded text-white/40 hover:text-white">
+                <Plus size={14} />
+              </button>
+            </div>
+            <div className="space-y-1">
+              {quickCommands.map(qc => (
+                <div key={qc.id} className="group flex items-center gap-2 px-2 py-1.5 rounded hover:bg-white/5 transition-colors cursor-pointer">
+                  <div className="flex-1 flex items-center gap-2" onClick={() => runQuickCommand(qc)}>
+                    <Command size={14} className="text-emerald-400" />
+                    <span className="text-sm truncate font-medium">{qc.name}</span>
+                  </div>
+                  <button 
+                    onClick={(e) => { e.stopPropagation(); openQuickCommandModal(qc); }} 
+                    className="opacity-0 group-hover:opacity-100 p-1 hover:text-emerald-400 transition-opacity"
+                  >
+                    <Edit3 size={12} />
+                  </button>
+                  <button 
+                    onClick={(e) => { e.stopPropagation(); deleteQuickCommand(qc.id); }} 
+                    className="opacity-0 group-hover:opacity-100 p-1 hover:text-red-400 transition-opacity"
+                  >
+                    <Trash2 size={12} />
+                  </button>
+                </div>
+              ))}
+              {quickCommands.length === 0 && (
+                <div className="px-2 py-4 text-center border border-dashed border-white/5 rounded">
+                  <p className="text-[10px] text-white/20 italic">No quick commands yet</p>
+                </div>
+              )}
+            </div>
+          </div>
+
           {/* Workspaces */}
           <div>
             <div className="flex items-center justify-between px-2 mb-2">
@@ -776,7 +867,6 @@ export default function App() {
                               title: dir.name || dir.path.split('/').pop() || dir.path, 
                               cwd: resolvedPath, 
                               shell: defaultShell || undefined,
-                              envId: selectedEnvId || undefined,
                               groupName: ws.name,
                               groupColor: getGroupColor(ws.name)
                             };
@@ -852,11 +942,9 @@ export default function App() {
                         key={env.id} 
                         className={`group flex items-center gap-2 px-2 py-1.5 rounded cursor-pointer transition-colors ${currentEnvId === env.id ? 'bg-emerald-500/10 text-emerald-400' : 'hover:bg-white/5'}`}
                       >
-                        <div className="flex-1 flex flex-col min-w-0" onClick={() => {
-                          setSelectedEnvId(env.id);
-                        }}>
+                        <div className="flex-1 flex flex-col min-w-0">
                           <div className="flex items-center gap-2">
-                            <Settings size={14} className={currentEnvId === env.id ? 'text-emerald-400' : 'text-orange-400'} />
+                            <Settings size={14} className="text-orange-400" />
                             <span className="text-sm truncate font-medium">{env.name}</span>
                           </div>
                           <div className="pl-6 text-[10px] text-white/30 truncate">
@@ -966,12 +1054,11 @@ export default function App() {
         </div>
 
         {/* Active Env Indicator */}
-        {(activeEnv || localVarsCount > 0) && (
+        {localVarsCount > 0 && (
           <div className="bg-emerald-500/5 px-4 py-1 border-b border-emerald-500/10 flex items-center gap-2 text-[10px] text-emerald-400/60 uppercase tracking-widest font-bold">
             <Globe size={10} />
             <span>
-              Active Environment: {activeEnv?.name || 'Local Only'}
-              {localVarsCount > 0 && ` (+ ${localVarsCount} local overrides)`}
+              Local overrides active (+ {localVarsCount} variables)
             </span>
           </div>
         )}
@@ -998,19 +1085,10 @@ export default function App() {
                 <TerminalComponent 
                   cwd={tab.cwd} 
                   shell={tab.shell}
+                  initialCommand={tab.initialCommand}
                   env={(() => {
                     const envObj: Record<string, string> = {};
-                    const targetEnv = environments.find(e => e.id === (tab.envId || selectedEnvId));
-                    if (targetEnv) {
-                      if (Array.isArray(targetEnv.variables)) {
-                        targetEnv.variables.forEach(v => {
-                          envObj[v.key] = v.value;
-                        });
-                      } else {
-                        Object.assign(envObj, targetEnv.variables);
-                      }
-                    }
-                    // Merge local tab variables (they override global ones)
+                    // Merge local tab variables
                     if (tab.localVariables) {
                       tab.localVariables.forEach(v => {
                         if (v.key.trim()) {
@@ -1324,21 +1402,6 @@ export default function App() {
       >
         <form onSubmit={handleSaveTabSettings} className="space-y-6">
           <div>
-            <label className="block text-xs font-bold text-white/40 uppercase mb-2">Base Environment</label>
-            <select 
-              value={tabEnvId || ''} 
-              onChange={e => setTabEnvId(e.target.value || undefined)}
-              className="w-full bg-[#1a1a1a] border border-white/10 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-emerald-500/50 transition-colors text-white"
-            >
-              <option value="">None</option>
-              {environments.map(env => (
-                <option key={env.id} value={env.id}>{env.name} ({env.groupName || 'Ungrouped'})</option>
-              ))}
-            </select>
-            <p className="mt-1 text-[10px] text-white/20 italic">Select a global environment to use as the base for this tab.</p>
-          </div>
-
-          <div>
             <div className="flex items-center justify-between mb-2">
               <label className="block text-xs font-bold text-white/40 uppercase">Local Overrides & Variables</label>
               <div className="flex items-center gap-2">
@@ -1431,6 +1494,65 @@ export default function App() {
               className="px-4 py-2 bg-emerald-500 text-black font-semibold rounded-lg hover:bg-emerald-400 transition-colors text-sm"
             >
               Save Tab Settings
+            </button>
+          </div>
+        </form>
+      </Modal>
+
+      <Modal
+        isOpen={isQuickCommandModalOpen}
+        onClose={() => setIsQuickCommandModalOpen(false)}
+        title={editingQuickCommand ? 'Edit Quick Command' : 'New Quick Command'}
+      >
+        <form onSubmit={handleSaveQuickCommand} className="space-y-4">
+          <div>
+            <label className="block text-xs font-bold text-white/40 uppercase mb-1">Name</label>
+            <input 
+              autoFocus
+              type="text" 
+              value={qcName}
+              onChange={e => setQcName(e.target.value)}
+              placeholder="Run Proxy"
+              className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-emerald-500/50 transition-colors"
+              required
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-bold text-white/40 uppercase mb-1">Command</label>
+            <textarea 
+              value={qcCommand}
+              onChange={e => setQcCommand(e.target.value)}
+              placeholder="npm run proxy"
+              rows={3}
+              className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-emerald-500/50 transition-colors font-mono"
+              required
+            />
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-xs font-bold text-white/40 uppercase mb-1">Working Directory (Optional)</label>
+              <input 
+                type="text" 
+                value={qcCwd}
+                onChange={e => setQcCwd(e.target.value)}
+                placeholder="./proxy-service"
+                className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-emerald-500/50 transition-colors"
+              />
+            </div>
+          </div>
+          <div className="flex justify-end gap-2 pt-2">
+            <button 
+              type="button"
+              onClick={() => setIsQuickCommandModalOpen(false)}
+              className="px-4 py-2 text-sm text-white/40 hover:text-white transition-colors"
+            >
+              Cancel
+            </button>
+            <button 
+              type="submit"
+              className="px-4 py-2 bg-emerald-500 text-black font-semibold rounded-lg hover:bg-emerald-400 transition-colors text-sm"
+            >
+              Save Command
             </button>
           </div>
         </form>

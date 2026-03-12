@@ -27,4 +27,13 @@ export interface Tab {
   groupName?: string;
   groupColor?: string;
   localVariables?: EnvVar[];
+  initialCommand?: string;
+}
+
+export interface QuickCommand {
+  id: string;
+  name: string;
+  command: string;
+  cwd?: string;
+  icon?: string;
 }

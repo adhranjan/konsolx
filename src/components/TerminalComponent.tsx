@@ -7,10 +7,11 @@ interface TerminalComponentProps {
   cwd: string;
   env: Record<string, string>;
   shell?: string;
+  initialCommand?: string;
   onClose: () => void;
 }
 
-const TerminalComponent: React.FC<TerminalComponentProps> = ({ cwd, env, shell, onClose }) => {
+const TerminalComponent: React.FC<TerminalComponentProps> = ({ cwd, env, shell, initialCommand, onClose }) => {
   const terminalRef = useRef<HTMLDivElement>(null);
   const xtermRef = useRef<Terminal | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
@@ -47,6 +48,15 @@ const TerminalComponent: React.FC<TerminalComponentProps> = ({ cwd, env, shell, 
         cols: term.cols,
         rows: term.rows
       }));
+
+      if (initialCommand) {
+        // Wait a bit for the shell to be ready
+        setTimeout(() => {
+          if (ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ type: 'input', data: initialCommand + '\n' }));
+          }
+        }, 500);
+      }
     };
 
     ws.onmessage = (event) => {

@@ -23,6 +23,14 @@ db.exec(`
     groupName TEXT,
     variables TEXT NOT NULL
   );
+  CREATE TABLE IF NOT EXISTS quick_commands (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    command TEXT NOT NULL,
+    cwd TEXT,
+    envId TEXT,
+    icon TEXT
+  );
 `);
 
 // Check if basePath column exists, if not add it (for existing databases)
@@ -119,6 +127,36 @@ async function startServer() {
 
   app.delete("/api/environments/:id", (req, res) => {
     db.prepare("DELETE FROM environments WHERE id = ?").run(req.params.id);
+    res.json({ success: true });
+  });
+
+  app.get("/api/quick-commands", (req, res) => {
+    const rows = db.prepare("SELECT * FROM quick_commands").all();
+    res.json(rows);
+  });
+
+  app.post("/api/quick-commands", (req, res) => {
+    try {
+      const { id, name, command, cwd, envId, icon } = req.body;
+      const cmdId = id || Math.random().toString(36).substr(2, 9);
+      
+      db.prepare("INSERT OR REPLACE INTO quick_commands (id, name, command, cwd, envId, icon) VALUES (?, ?, ?, ?, ?, ?)").run(
+        cmdId, 
+        name || 'Untitled Command', 
+        command || '',
+        cwd || null,
+        envId || null,
+        icon || null
+      );
+      res.json({ success: true });
+    } catch (err) {
+      console.error('Error saving quick command:', err);
+      res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  app.delete("/api/quick-commands/:id", (req, res) => {
+    db.prepare("DELETE FROM quick_commands WHERE id = ?").run(req.params.id);
     res.json({ success: true });
   });
 
