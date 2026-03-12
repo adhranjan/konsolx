@@ -1,0 +1,5 @@
+{
+  "name": "Konsolx",
+  "description": "A powerful multi-tab terminal with workspace management and environment variable synchronization.",
+  "requestFramePermissions": []
+}
