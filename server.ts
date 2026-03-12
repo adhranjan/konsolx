@@ -2,8 +2,9 @@ import express from "express";
 import { createServer } from "http";
 import { WebSocketServer, WebSocket } from "ws";
 import { createServer as createViteServer } from "vite";
-import { spawn } from "child_process";
+import { spawn, ChildProcessWithoutNullStreams } from "child_process";
 import os from "os";
+import path from "path";
 import Database from "better-sqlite3";
 
 const db = new Database("terminal.db");
@@ -51,6 +52,10 @@ async function startServer() {
 
   app.use(express.json({ limit: '50mb' }));
   app.use(express.urlencoded({ extended: true, limit: '50mb' }));
+
+  app.get("/api/health", (req, res) => {
+    res.json({ status: "ok" });
+  });
 
   // API Routes
   app.get("/api/workspaces", (req, res) => {
@@ -127,20 +132,39 @@ async function startServer() {
   const shellArgs = os.platform() === "win32" ? [] : ["-i"];
 
   wss.on("connection", (ws: WebSocket) => {
-    let shellProcess = null;
+    let shellProcess: ChildProcessWithoutNullStreams | null = null;
 
     ws.on("message", (message: string) => {
       const data = JSON.parse(message.toString());
 
       if (data.type === "init") {
-        const { cwd, env, shell: customShell } = data;
+        const { cwd, env, shell: customShell, cols, rows } = data;
         let selectedShell = customShell || shell;
         
         const startShell = (shellToTry: string) => {
           try {
-            shellProcess = spawn(shellToTry, shellArgs, {
+            const isWindows = os.platform() === "win32";
+            let finalShell = shellToTry;
+            let finalArgs = [...shellArgs];
+
+            // Use python3 pty trick to get a real terminal if on Unix
+            // This fixes "Inappropriate ioctl for device" and provides a better prompt
+            if (!isWindows) {
+              finalShell = "python3";
+              finalArgs = ["-c", `import pty; pty.spawn("${shellToTry}")`];
+            }
+
+            console.log(`Starting shell: ${finalShell} (target: ${shellToTry}) in ${cwd || process.cwd()} with env keys: ${Object.keys(env || {})}`);
+
+            shellProcess = spawn(finalShell, finalArgs, {
               cwd: cwd || process.cwd(),
-              env: { ...process.env, ...env, TERM: "xterm-256color" },
+              env: { 
+                ...process.env, 
+                ...env, 
+                TERM: "xterm-256color",
+                COLUMNS: String(cols || 80),
+                LINES: String(rows || 24)
+              },
               detached: true,
             });
 
@@ -181,7 +205,30 @@ async function startServer() {
 
         startShell(selectedShell);
       } else if (data.type === "input" && shellProcess) {
-        shellProcess.stdin.write(data.data);
+        if (data.data === "\x03") { // Ctrl+C
+          try {
+            process.kill(-shellProcess.pid, 'SIGINT');
+          } catch (e) {
+            shellProcess.stdin.write(data.data);
+          }
+        } else if (data.data === "\x1a") { // Ctrl+Z
+          try {
+            process.kill(-shellProcess.pid, 'SIGTSTP');
+          } catch (e) {
+            shellProcess.stdin.write(data.data);
+          }
+        } else if (data.data === "\x1c") { // Ctrl+\
+          try {
+            process.kill(-shellProcess.pid, 'SIGQUIT');
+          } catch (e) {
+            shellProcess.stdin.write(data.data);
+          }
+        } else {
+          shellProcess.stdin.write(data.data);
+        }
+      } else if (data.type === "resize" && shellProcess) {
+        // We can't easily resize a non-pty process, but we can update env for future processes
+        // or some shells might pick up SIGWINCH if we could send it (but we can't easily without pty)
       }
     });
 

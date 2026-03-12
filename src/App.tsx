@@ -92,7 +92,7 @@ export default function App() {
       title, 
       cwd, 
       shell: defaultShell || undefined,
-      envId: activeEnv?.id || selectedEnvId || undefined,
+      envId: undefined, // Follow global selection by default
       groupName: effectiveGroupName,
       groupColor: effectiveGroupName ? getGroupColor(effectiveGroupName) : undefined
     };
@@ -108,6 +108,36 @@ export default function App() {
       }
       return remainingTabs;
     });
+  };
+
+  // Prevent accidental browser tab closure
+  useEffect(() => {
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (tabs.length > 0) {
+        e.preventDefault();
+        e.returnValue = ''; // Required for Chrome
+        return '';
+      }
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [tabs.length]);
+
+  const handleTabWheel = (e: React.WheelEvent) => {
+    if (tabs.length <= 1) return;
+    
+    const currentIndex = tabs.findIndex(t => t.id === activeTabId);
+    if (currentIndex === -1) return;
+
+    if (e.deltaY > 0) {
+      // Scroll down -> Next tab (clamp at end)
+      const nextIndex = Math.min(currentIndex + 1, tabs.length - 1);
+      setActiveTabId(tabs[nextIndex].id);
+    } else if (e.deltaY < 0) {
+      // Scroll up -> Previous tab (clamp at start)
+      const prevIndex = Math.max(currentIndex - 1, 0);
+      setActiveTabId(tabs[prevIndex].id);
+    }
   };
 
   const toggleWorkspace = (id: string) => {
@@ -157,7 +187,7 @@ export default function App() {
         title: dir.name || dir.path.split('/').pop() || dir.path, 
         cwd: resolvedPath, 
         shell: defaultShell || undefined,
-        envId: selectedEnvId || undefined,
+        envId: undefined, // Follow global selection by default
         groupName: ws.name,
         groupColor
       });
@@ -538,7 +568,8 @@ export default function App() {
   };
 
   const activeTab = tabs.find(t => t.id === activeTabId);
-  const activeEnv = environments.find(e => e.id === (activeTab?.envId || selectedEnvId));
+  const currentEnvId = activeTab?.envId || selectedEnvId;
+  const activeEnv = environments.find(e => e.id === currentEnvId);
   const localVarsCount = activeTab?.localVariables?.length || 0;
 
   // Keyboard Shortcuts
@@ -578,10 +609,27 @@ export default function App() {
       {/* Native-style Title Bar */}
       <div className="h-10 flex items-center justify-between px-4 bg-[#0a0a0a] border-b border-white/5 select-none drag-region shrink-0">
         <div className="flex items-center gap-2">
-          <div className="flex gap-1.5 mr-4">
-            <div className="w-3 h-3 rounded-full bg-[#ff5f56] border border-black/10" />
-            <div className="w-3 h-3 rounded-full bg-[#ffbd2e] border border-black/10" />
-            <div className="w-3 h-3 rounded-full bg-[#27c93f] border border-black/10" />
+          <div className="flex gap-1.5 mr-4 group/controls">
+            <button 
+              onClick={() => setIsSidebarOpen(!isSidebarOpen)}
+              className="w-3 h-3 rounded-full bg-[#ffbd2e] border border-black/10 hover:brightness-110 transition-all flex items-center justify-center group"
+              title="Toggle Sidebar"
+            >
+              <span className="text-[8px] text-black/40 opacity-0 group-hover:opacity-100">−</span>
+            </button>
+            <button 
+              onClick={() => {
+                if (!document.fullscreenElement) {
+                  document.documentElement.requestFullscreen();
+                } else {
+                  document.exitFullscreen();
+                }
+              }}
+              className="w-3 h-3 rounded-full bg-[#27c93f] border border-black/10 hover:brightness-110 transition-all flex items-center justify-center group"
+              title="Toggle Fullscreen"
+            >
+              <span className="text-[8px] text-black/40 opacity-0 group-hover:opacity-100">+</span>
+            </button>
           </div>
           <div className="flex items-center gap-2 text-[11px] font-bold text-white/40 uppercase tracking-widest">
             <Monitor size={12} />
@@ -802,11 +850,13 @@ export default function App() {
                     {!isCollapsed && (groupEnvs as Environment[]).map(env => (
                       <div 
                         key={env.id} 
-                        className={`group flex items-center gap-2 px-2 py-1.5 rounded cursor-pointer transition-colors ${selectedEnvId === env.id ? 'bg-emerald-500/10 text-emerald-400' : 'hover:bg-white/5'}`}
+                        className={`group flex items-center gap-2 px-2 py-1.5 rounded cursor-pointer transition-colors ${currentEnvId === env.id ? 'bg-emerald-500/10 text-emerald-400' : 'hover:bg-white/5'}`}
                       >
-                        <div className="flex-1 flex flex-col min-w-0" onClick={() => setSelectedEnvId(env.id)}>
+                        <div className="flex-1 flex flex-col min-w-0" onClick={() => {
+                          setSelectedEnvId(env.id);
+                        }}>
                           <div className="flex items-center gap-2">
-                            <Settings size={14} className={selectedEnvId === env.id ? 'text-emerald-400' : 'text-orange-400'} />
+                            <Settings size={14} className={currentEnvId === env.id ? 'text-emerald-400' : 'text-orange-400'} />
                             <span className="text-sm truncate font-medium">{env.name}</span>
                           </div>
                           <div className="pl-6 text-[10px] text-white/30 truncate">
@@ -844,7 +894,10 @@ export default function App() {
         )}
 
         {/* Tab Bar */}
-        <div className="h-12 bg-[#141414] border-b border-white/5 flex items-center px-2 gap-0.5 overflow-x-auto no-scrollbar">
+        <div 
+          onWheel={handleTabWheel}
+          className="h-12 bg-[#141414] border-b border-white/5 flex items-center px-2 gap-0.5 overflow-x-auto no-scrollbar"
+        >
           {tabs.map((tab, idx) => {
             const prevTab = tabs[idx - 1];
             const isSameGroup = prevTab && prevTab.groupName === tab.groupName && tab.groupName !== undefined;
@@ -876,10 +929,10 @@ export default function App() {
                     <button 
                       onClick={(e) => { 
                         e.stopPropagation(); 
-                        setTabs(prev => prev.map(t => t.id === tab.id ? { ...t, envId: selectedEnvId || undefined, groupName: activeEnv?.name, groupColor: activeEnv ? getGroupColor(activeEnv.name) : undefined } : t));
+                        setTabs(prev => prev.map(t => t.id === tab.id ? { ...t, envId: undefined } : t));
                       }}
                       className="p-0.5 hover:bg-white/10 rounded"
-                      title="Sync Environment & Group"
+                      title="Reset to Global Environment"
                     >
                       <RefreshCw size={10} />
                     </button>
@@ -947,7 +1000,7 @@ export default function App() {
                   shell={tab.shell}
                   env={(() => {
                     const envObj: Record<string, string> = {};
-                    const targetEnv = environments.find(e => e.id === tab.envId);
+                    const targetEnv = environments.find(e => e.id === (tab.envId || selectedEnvId));
                     if (targetEnv) {
                       if (Array.isArray(targetEnv.variables)) {
                         targetEnv.variables.forEach(v => {

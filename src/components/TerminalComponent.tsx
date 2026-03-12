@@ -39,7 +39,14 @@ const TerminalComponent: React.FC<TerminalComponentProps> = ({ cwd, env, shell, 
     wsRef.current = ws;
 
     ws.onopen = () => {
-      ws.send(JSON.stringify({ type: 'init', cwd, env, shell }));
+      ws.send(JSON.stringify({ 
+        type: 'init', 
+        cwd, 
+        env, 
+        shell,
+        cols: term.cols,
+        rows: term.rows
+      }));
     };
 
     ws.onmessage = (event) => {
@@ -67,6 +74,13 @@ const TerminalComponent: React.FC<TerminalComponentProps> = ({ cwd, env, shell, 
       if (terminalRef.current && terminalRef.current.offsetWidth > 0) {
         try {
           fitAddon.fit();
+          if (ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({
+              type: 'resize',
+              cols: term.cols,
+              rows: term.rows
+            }));
+          }
         } catch (e) {
           console.warn('Fit failed:', e);
         }
@@ -83,8 +97,19 @@ const TerminalComponent: React.FC<TerminalComponentProps> = ({ cwd, env, shell, 
 
     window.addEventListener('resize', handleResize);
 
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (ws.readyState === WebSocket.OPEN) {
+        e.preventDefault();
+        e.returnValue = '';
+        return '';
+      }
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+
     return () => {
       window.removeEventListener('resize', handleResize);
+      window.removeEventListener('beforeunload', handleBeforeUnload);
       resizeObserver.disconnect();
       if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
         ws.close();
