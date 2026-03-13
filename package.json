@@ -10,7 +10,8 @@
     "clean": "rm -rf dist",
     "lint": "tsc --noEmit",
     "build:server": "tsc -p tsconfig.server.json",
-    "build": "vite build && npm run build:server"
+    "build": "vite build && npm run build:server",
+    "start": "NODE_ENV=production tsx server.ts"
   },
   "dependencies": {
     "@google/genai": "1.29.0",

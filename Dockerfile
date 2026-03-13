@@ -1,48 +1,34 @@
-# ----------------------------
-# Stage 1: Builder
-# ----------------------------
-FROM node:20-bullseye AS builder
+# Use Node.js LTS
+FROM node:20-slim
 
+# Install dependencies for building native modules and python for the pty trick
 RUN apt-get update && apt-get install -y \
     python3 \
-    bash \
-    curl \
-    git \
+    python3-pip \
+    build-essential \
+    util-linux \
     && rm -rf /var/lib/apt/lists/*
 
-# Set working directory
 WORKDIR /app
 
-# Copy package files and install all dependencies (including dev for building)
+# Copy package files
 COPY package*.json ./
-RUN yarn install --frozen-lockfile
 
-# Copy source files
+# Install dependencies
+RUN npm install
+
+# Copy the rest of the application
 COPY . .
 
-# Build frontend + backend
-RUN yarn build
+# Build the frontend
+RUN npm run build
 
-# ----------------------------
-# Stage 2: Production
-# ----------------------------
-FROM node:20-alpine
+# Expose the port
+EXPOSE 3000
 
-WORKDIR /app
-
+# Set environment variables
 ENV NODE_ENV=production
-ENV PORT=8012
+ENV PORT=3000
 
-# Install runtime tools (python3, bash)
-RUN apk add --no-cache python3 bash git curl
-
-# Copy built backend + frontend
-COPY --from=builder /app/build ./build
-COPY --from=builder /app/dist ./dist
-COPY package*.json ./
-
-# Install production dependencies
-RUN yarn install --frozen-lockfile --production
-
-EXPOSE 8012
-CMD ["node", "build/server.js"]
+# Start the server
+CMD ["npm", "start"]

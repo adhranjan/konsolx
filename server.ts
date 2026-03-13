@@ -65,6 +65,13 @@ async function startServer() {
     res.json({ status: "ok" });
   });
 
+  app.get("/api/config", (req, res) => {
+    res.json({ 
+      useHostShell: process.env.USE_HOST_SHELL === "true",
+      platform: os.platform()
+    });
+  });
+
   // API Routes
   app.get("/api/workspaces", (req, res) => {
     const rows = db.prepare("SELECT * FROM workspaces").all();
@@ -182,31 +189,74 @@ async function startServer() {
         const startShell = (shellToTry: string) => {
           try {
             const isWindows = os.platform() === "win32";
+            const useHostShell = process.env.USE_HOST_SHELL === "true";
             let finalShell = shellToTry;
             let finalArgs = [...shellArgs];
 
             // Use python3 pty trick to get a real terminal if on Unix
             // This fixes "Inappropriate ioctl for device" and provides a better prompt
             if (!isWindows) {
-              finalShell = "python3";
-              finalArgs = ["-c", `import pty; pty.spawn("${shellToTry}")`];
+              if (useHostShell) {
+                // Use nsenter to enter host namespaces
+                // We need to be root and have --privileged or CAP_SYS_ADMIN
+                finalShell = "nsenter";
+                const pythonCode = `import pty, signal; signal.signal(signal.SIGINT, signal.SIG_IGN); pty.spawn("${shellToTry}")`;
+                
+                // -t 1: target PID 1 (host init)
+                // -m: mount namespace (host filesystem)
+                // -u: UTS namespace (host hostname)
+                // -i: IPC namespace
+                // -n: network namespace (host network)
+                // -p: PID namespace (see host processes)
+                finalArgs = ["-t", "1", "-m", "-u", "-i", "-n", "-p"];
+                
+                // Use sh to provide a fallback if python3 is not available or fails on the host
+                // We do the 'cd' inside the shell command instead of using nsenter --wd
+                // to avoid compatibility issues with older nsenter versions.
+                const cdCommand = (cwd && path.isAbsolute(cwd)) ? `cd "${cwd}" 2>/dev/null || cd /; ` : "cd /; ";
+                const wrappedCommand = `export KONSOLX_HOST=true; ${cdCommand}if command -v python3 >/dev/null 2>&1; then python3 -c '${pythonCode}' 2>/dev/null || exec ${shellToTry} -i; else exec ${shellToTry} -i; fi`;
+                finalArgs.push("sh", "-c", wrappedCommand);
+              } else {
+                finalShell = "python3";
+                // Use a robust one-liner that ignores SIGINT in the wrapper itself
+                // so we don't get tracebacks, but the signal still reaches the child shell.
+                const pythonCode = `import pty, signal; signal.signal(signal.SIGINT, signal.SIG_IGN); pty.spawn("${shellToTry}")`;
+                finalArgs = ["-c", pythonCode];
+              }
             }
 
-            console.log(`Starting shell: ${finalShell} (target: ${shellToTry}) in ${cwd || process.cwd()} with env keys: ${Object.keys(env || {})}`);
+            console.log(`Spawning: ${finalShell} ${finalArgs.join(' ')}`);
+            console.log(`CWD: ${useHostShell ? 'Host' : (cwd || process.cwd())}`);
+
+            // When using host shell, we want a clean environment to avoid container variables 
+            // (like PYTHONPATH or LD_LIBRARY_PATH) interfering with host binaries.
+            let spawnEnv: any = { ...process.env, ...env };
+            
+            if (useHostShell) {
+              // Remove container-specific variables that interfere with host binaries
+              delete spawnEnv.PYTHONPATH;
+              delete spawnEnv.PYTHONHOME;
+              delete spawnEnv.LD_LIBRARY_PATH;
+              delete spawnEnv.NODE_ENV;
+              
+              spawnEnv.TERM = "xterm-256color";
+              spawnEnv.PATH = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin";
+              spawnEnv.LANG = "en_US.UTF-8";
+              spawnEnv.HOME = "/root";
+              spawnEnv.KONSOLX_HOST = "true";
+            } else {
+              spawnEnv.TERM = "xterm-256color";
+              spawnEnv.COLORTERM = "truecolor";
+            }
+            
+            spawnEnv.COLUMNS = String(cols || 80);
+            spawnEnv.LINES = String(rows || 24);
 
             shellProcess = spawn(finalShell, finalArgs, {
-              cwd: cwd || process.cwd(),
-              env: { 
-                ...process.env, 
-                ...env, 
-                TERM: "xterm-256color",
-                COLUMNS: String(cols || 80),
-                LINES: String(rows || 24)
-              },
+              cwd: useHostShell ? "/" : (cwd || process.cwd()),
+              env: spawnEnv,
               detached: true,
             });
-
-            shellProcess.unref();
 
             shellProcess.on("error", (err: any) => {
               if (err.code === 'ENOENT' && shellToTry === 'bash') {
@@ -219,6 +269,12 @@ async function startServer() {
               ws.close();
             });
 
+            if (useHostShell) {
+              let msg = "\x1b[1;32m[Connected to Host Shell]\x1b[0m\r\n";
+              msg += "\x1b[0;90m[Tip: On Docker Desktop, host files are typically at /mnt/host or /host_mnt]\x1b[0m\r\n";
+              ws.send(JSON.stringify({ type: "output", data: msg }));
+            }
+
             shellProcess.stdout.on("data", (data) => {
               ws.send(JSON.stringify({ type: "output", data: data.toString() }));
             });
@@ -230,7 +286,10 @@ async function startServer() {
             shellProcess.on("exit", (code, signal) => {
               console.log(`Shell process exited with code ${code} and signal ${signal}`);
               if (code !== 0 && code !== null) {
-                ws.send(JSON.stringify({ type: "output", data: `\r\n[Process exited with code ${code}]\r\n` }));
+                let errorMsg = `\r\n[Process exited with code ${code}]\r\n`;
+                if (code === 127) errorMsg += "[Error: Command not found. Ensure bash/python3 are installed on the host and nsenter can find them.]\r\n";
+                if (code === 126) errorMsg += "[Error: Permission denied or command not executable. Check host security settings like AppArmor/SELinux.]\r\n";
+                ws.send(JSON.stringify({ type: "output", data: errorMsg }));
               }
               ws.close();
             });

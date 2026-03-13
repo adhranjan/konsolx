@@ -63,12 +63,14 @@ export default function App() {
   const [qcCommand, setQcCommand] = useState('');
   const [qcCwd, setQcCwd] = useState('');
   const [importStatus, setImportStatus] = useState<{ message: string; type: 'info' | 'error' | 'success' } | null>(null);
+  const [serverConfig, setServerConfig] = useState<{ useHostShell: boolean; platform: string } | null>(null);
 
   // Fetch initial data
   useEffect(() => {
     fetch('/api/workspaces').then(res => res.json()).then(setWorkspaces);
     fetch('/api/environments').then(res => res.json()).then(setEnvironments);
     fetch('/api/quick-commands').then(res => res.json()).then(setQuickCommands);
+    fetch('/api/config').then(res => res.json()).then(setServerConfig);
   }, []);
 
   const getGroupColor = (name: string) => {
@@ -469,6 +471,7 @@ export default function App() {
     const data = {
       workspaces,
       environments,
+      quickCommands,
       version: '1.0',
       exportedAt: new Date().toISOString()
     };
@@ -502,6 +505,24 @@ export default function App() {
     URL.revokeObjectURL(url);
   };
 
+  const exportQuickCommands = () => {
+    const data = {
+      quickCommands,
+      version: '1.0',
+      type: 'quick-commands',
+      exportedAt: new Date().toISOString()
+    };
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `termisync-quick-commands-${new Date().toISOString().split('T')[0]}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
   const handleImport = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -512,7 +533,7 @@ export default function App() {
     reader.onload = async (event) => {
       try {
         const data = JSON.parse(event.target?.result as string);
-        if (!data.environments) {
+        if (!data.environments && !data.quickCommands && !data.workspaces) {
           setImportStatus({ message: 'Invalid backup file format', type: 'error' });
           return;
         }
@@ -535,32 +556,43 @@ export default function App() {
             }
           }
         }
-        // Import Environments
-        for (const env of data.environments) {
-          console.log('Importing environment:', env);
-          const response = await fetch('/api/environments', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(env)
-          });
-          if (!response.ok) {
-            const errorData = await response.json();
-            throw new Error(`Environment import failed: ${errorData.error || response.statusText}`);
+        // Import Environments (if present)
+        if (data.environments) {
+          for (const env of data.environments) {
+            await fetch('/api/environments', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(env)
+            });
+          }
+        }
+
+        // Import Quick Commands (if present)
+        if (data.quickCommands) {
+          for (const qc of data.quickCommands) {
+            await fetch('/api/quick-commands', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(qc)
+            });
           }
         }
 
         // Refresh data
-        const [wsRes, envRes] = await Promise.all([
+        const [wsRes, envRes, qcRes] = await Promise.all([
           fetch('/api/workspaces'),
-          fetch('/api/environments')
+          fetch('/api/environments'),
+          fetch('/api/quick-commands')
         ]);
-        const [wsData, envData] = await Promise.all([
+        const [wsData, envData, qcData] = await Promise.all([
           wsRes.json(),
-          envRes.json()
+          envRes.json(),
+          qcRes.json()
         ]);
         
         setWorkspaces(wsData);
         setEnvironments(envData);
+        setQuickCommands(qcData);
         
         setImportStatus({ message: 'Import successful!', type: 'success' });
         setTimeout(() => setImportStatus(null), 3000);
@@ -686,6 +718,11 @@ export default function App() {
           <div className="flex items-center gap-2 text-[11px] font-bold text-white/40 uppercase tracking-widest">
             <Monitor size={12} />
             <span>Konsolx Desktop</span>
+            {serverConfig?.useHostShell && (
+              <span className="ml-2 px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-500 text-[9px] border border-emerald-500/20">
+                Host Shell Active
+              </span>
+            )}
           </div>
         </div>
         <div className="flex items-center gap-4">
@@ -772,9 +809,25 @@ export default function App() {
               <span className="text-xs font-bold text-white/40 uppercase tracking-wider flex items-center gap-2">
                 <Play size={12} /> Quick Commands
               </span>
-              <button onClick={() => openQuickCommandModal()} className="p-1 hover:bg-white/5 rounded text-white/40 hover:text-white">
-                <Plus size={14} />
-              </button>
+              <div className="flex items-center gap-1">
+                <button 
+                  onClick={() => exportQuickCommands()} 
+                  className="p-1 hover:bg-white/5 rounded text-white/40 hover:text-emerald-400 transition-colors"
+                  title="Export Quick Commands"
+                >
+                  <Download size={14} />
+                </button>
+                <button 
+                  onClick={() => document.getElementById('global-import-input')?.click()} 
+                  className="p-1 hover:bg-white/5 rounded text-white/40 hover:text-blue-400 transition-colors"
+                  title="Import Quick Commands"
+                >
+                  <Upload size={14} />
+                </button>
+                <button onClick={() => openQuickCommandModal()} className="p-1 hover:bg-white/5 rounded text-white/40 hover:text-white">
+                  <Plus size={14} />
+                </button>
+              </div>
             </div>
             <div className="space-y-1">
               {quickCommands.map(qc => (
@@ -940,6 +993,11 @@ export default function App() {
                     {!isCollapsed && (groupEnvs as Environment[]).map(env => (
                       <div 
                         key={env.id} 
+                        onClick={() => {
+                          if (activeTabId) {
+                            setTabs(prev => prev.map(t => t.id === activeTabId ? { ...t, envId: env.id } : t));
+                          }
+                        }}
                         className={`group flex items-center gap-2 px-2 py-1.5 rounded cursor-pointer transition-colors ${currentEnvId === env.id ? 'bg-emerald-500/10 text-emerald-400' : 'hover:bg-white/5'}`}
                       >
                         <div className="flex-1 flex flex-col min-w-0">
@@ -1088,7 +1146,18 @@ export default function App() {
                   initialCommand={tab.initialCommand}
                   env={(() => {
                     const envObj: Record<string, string> = {};
-                    // Merge local tab variables
+                    
+                    // 1. Merge global environment variables (if selected)
+                    const tabEnv = environments.find(e => e.id === tab.envId);
+                    if (tabEnv && Array.isArray(tabEnv.variables)) {
+                      tabEnv.variables.forEach(v => {
+                        if (v.key.trim()) {
+                          envObj[v.key] = v.value;
+                        }
+                      });
+                    }
+
+                    // 2. Merge local tab variables (overrides global)
                     if (tab.localVariables) {
                       tab.localVariables.forEach(v => {
                         if (v.key.trim()) {
