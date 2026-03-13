@@ -1,17 +1,19 @@
-version: '3.8'
-
 services:
   konsolx:
     build: .
     container_name: konsolx
     ports:
-      - "8012:3000"
+      - "3000:3000"
     volumes:
+      # Persist workspace/environment/quick-command settings across container restarts
       - ./terminal.db:/app/terminal.db
-    # To access host shell, we need these:
+    # pid: host lets the container see host PIDs so nsenter can target PID 1
     pid: host
+    # privileged gives nsenter the capabilities it needs to enter host namespaces
     privileged: true
     environment:
+      # Enables host-shell mode: terminals use nsenter to run inside the host's
+      # mount, network, PID, and UTS namespaces — exactly like a native terminal
       - USE_HOST_SHELL=true
       - PORT=3000
     restart: unless-stopped
