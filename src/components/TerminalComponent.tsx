@@ -1,6 +1,7 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Terminal } from 'xterm';
 import { FitAddon } from 'xterm-addon-fit';
+import { RefreshCw } from 'lucide-react';
 import 'xterm/css/xterm.css';
 
 interface TerminalComponentProps {
@@ -15,9 +16,13 @@ const TerminalComponent: React.FC<TerminalComponentProps> = ({ cwd, env, shell, 
   const terminalRef = useRef<HTMLDivElement>(null);
   const xtermRef = useRef<Terminal | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
+  const [isDisconnected, setIsDisconnected] = useState(false);
+  const [reconnectKey, setReconnectKey] = useState(0);
 
   useEffect(() => {
     if (!terminalRef.current) return;
+
+    setIsDisconnected(false);
 
     const term = new Terminal({
       cursorBlink: true,
@@ -32,7 +37,13 @@ const TerminalComponent: React.FC<TerminalComponentProps> = ({ cwd, env, shell, 
     const fitAddon = new FitAddon();
     term.loadAddon(fitAddon);
     term.open(terminalRef.current);
-    fitAddon.fit();
+    if (terminalRef.current.offsetWidth > 0) {
+      try {
+        fitAddon.fit();
+      } catch (e) {
+        console.warn('Initial fit failed:', e);
+      }
+    }
     xtermRef.current = term;
 
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -67,10 +78,14 @@ const TerminalComponent: React.FC<TerminalComponentProps> = ({ cwd, env, shell, 
     };
 
     ws.onclose = (event) => {
-      if (event.wasClean) {
-        term.write('\r\n[Terminal session closed]\r\n');
-      } else {
-        term.write('\r\n[Connection lost]\r\n');
+      // Only show disconnected UI if it wasn't closed by our own cleanup
+      if (wsRef.current === ws) {
+        setIsDisconnected(true);
+        if (event.wasClean) {
+          term.write('\r\n[Terminal session closed]\r\n');
+        } else {
+          term.write('\r\n[Connection lost]\r\n');
+        }
       }
     };
 
@@ -121,14 +136,36 @@ const TerminalComponent: React.FC<TerminalComponentProps> = ({ cwd, env, shell, 
       window.removeEventListener('resize', handleResize);
       window.removeEventListener('beforeunload', handleBeforeUnload);
       resizeObserver.disconnect();
+      if (wsRef.current === ws) {
+        wsRef.current = null;
+      }
       if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
         ws.close();
       }
       term.dispose();
     };
-  }, [cwd, JSON.stringify(env), shell]);
+  }, [cwd, JSON.stringify(env), shell, reconnectKey]);
 
-  return <div ref={terminalRef} className="w-full h-full bg-[#0a0a0a]" />;
+  const handleRestart = () => {
+    setReconnectKey(prev => prev + 1);
+  };
+
+  return (
+    <div className="relative w-full h-full bg-[#0a0a0a]">
+      <div ref={terminalRef} className="w-full h-full" />
+      {isDisconnected && (
+        <div className="absolute inset-0 flex items-center justify-center bg-black/40 backdrop-blur-[1px] z-10">
+          <button 
+            onClick={handleRestart}
+            className="flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-md shadow-lg transition-colors font-medium"
+          >
+            <RefreshCw size={18} />
+            Restart Terminal
+          </button>
+        </div>
+      )}
+    </div>
+  );
 };
 
 export default TerminalComponent;
