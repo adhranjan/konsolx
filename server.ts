@@ -224,14 +224,14 @@ async function startServer() {
                 finalArgs = ["-c", pythonCode];
               }
             }
-
+            console.log({useHostShell, finalShell})
             console.log(`Spawning: ${finalShell} ${finalArgs.join(' ')}`);
             console.log(`CWD: ${useHostShell ? 'Host' : (cwd || process.cwd())}`);
 
             // When using host shell, we want a clean environment to avoid container variables 
             // (like PYTHONPATH or LD_LIBRARY_PATH) interfering with host binaries.
             let spawnEnv: any = { ...process.env, ...env };
-            
+            console.log({spawnEnv});
             if (useHostShell) {
               // Remove container-specific variables that interfere with host binaries
               delete spawnEnv.PYTHONPATH;
@@ -257,6 +257,7 @@ async function startServer() {
               env: spawnEnv,
               detached: true,
             });
+            console.log(shellProcess);
 
             shellProcess.on("error", (err: any) => {
               if (err.code === 'ENOENT' && shellToTry === 'bash') {
@@ -352,7 +353,6 @@ async function startServer() {
   } else {
     app.use(express.static("dist"));
   }
-
   const PORT = process.env.PORT || 8012;
   server.listen(Number(PORT), "0.0.0.0", () => {
     console.log(`Server running on http://localhost:${PORT}`);
