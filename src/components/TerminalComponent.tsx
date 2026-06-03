@@ -32,6 +32,7 @@ const TerminalComponent: React.FC<TerminalComponentProps> = ({ cwd, env, shell, 
       fontSize: 14,
       fontFamily: '"JetBrains Mono", monospace',
       convertEol: true,
+      copyOnSelect: true,
       theme: {
         background: '#0a0a0a',
         foreground: '#e0e0e0',
@@ -98,6 +99,31 @@ const TerminalComponent: React.FC<TerminalComponentProps> = ({ cwd, env, shell, 
       }
     });
 
+    // Handle Ctrl+Shift+C inside the terminal — copy selection and stop
+    // the event from bubbling to the document DevTools blocker.
+    const handleTerminalCopy = (e: KeyboardEvent) => {
+      if (e.ctrlKey && e.shiftKey && (e.key === 'C' || e.key === 'c')) {
+        const selection = term.getSelection();
+        if (selection) {
+          navigator.clipboard.writeText(selection).catch(() => {
+            // Fallback for older browsers
+            const el = document.createElement('textarea');
+            el.value = selection;
+            document.body.appendChild(el);
+            el.select();
+            document.execCommand('copy');
+            document.body.removeChild(el);
+          });
+        }
+        e.preventDefault();
+        e.stopImmediatePropagation();
+      }
+    };
+
+    if (terminalRef.current) {
+      terminalRef.current.addEventListener('keydown', handleTerminalCopy, true);
+    }
+
     const handleResize = () => {
       if (terminalRef.current && terminalRef.current.offsetWidth > 0) {
         try {
@@ -139,6 +165,7 @@ const TerminalComponent: React.FC<TerminalComponentProps> = ({ cwd, env, shell, 
       window.removeEventListener('resize', handleResize);
       window.removeEventListener('beforeunload', handleBeforeUnload);
       resizeObserver.disconnect();
+      terminalRef.current?.removeEventListener('keydown', handleTerminalCopy, true);
       onSessionEnd?.();
       if (wsRef.current === ws) {
         wsRef.current = null;

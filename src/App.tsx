@@ -137,7 +137,7 @@ export default function App() {
     const block = (e: KeyboardEvent) => {
       // F12
       if (e.key === 'F12') { e.preventDefault(); return; }
-      // Ctrl+Shift+I / Ctrl+Shift+J / Ctrl+Shift+C
+      // Ctrl+Shift+I / Ctrl+Shift+J / Ctrl+Shift+C (DevTools) — copy works via copyOnSelect
       if (e.ctrlKey && e.shiftKey && ['I','i','J','j','C','c'].includes(e.key)) { e.preventDefault(); return; }
       // Ctrl+U (view source)
       if (e.ctrlKey && (e.key === 'u' || e.key === 'U')) { e.preventDefault(); return; }
