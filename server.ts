@@ -336,9 +336,12 @@ async function startServer() {
                 finalArgs = ["-t", "1", "-m", "-u", "-i", "-n", "-p"];
 
                 const hostUser = process.env.HOST_USER;
+                if (!hostUser) {
+                  console.warn('[konsolx] HOST_USER is not set. Terminals will run as root with no user environment. Set HOST_USER=$(whoami) in your compose command.');
+                }
                 // If HOST_USER is set, pty.spawn su so the host user's shell init
                 // files (.bashrc, nvm, etc.) load with the correct HOME.
-                // Otherwise fall back to spawning the shell directly.
+                // Otherwise fall back to spawning the shell directly (runs as root).
                 const ptyTarget = hostUser
                   ? `["su", "-", "${hostUser}"]`
                   : `"${shellToTry}"`;
@@ -408,6 +411,10 @@ async function startServer() {
             const { initialCommand } = data;
 
             if (useHostShell) {
+              const hostUser = process.env.HOST_USER;
+              if (!hostUser) {
+                ws.send(JSON.stringify({ type: "output", data: "\x1b[1;33m[Warning: HOST_USER not set — running as root. Start with: HOST_USER=$(whoami) docker compose up -d]\x1b[0m\r\n" }));
+              }
               ws.send(JSON.stringify({ type: "output", data: "\x1b[1;32m[Connected to Host Shell]\x1b[0m\r\n" }));
             }
 

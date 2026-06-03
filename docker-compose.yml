@@ -4,9 +4,9 @@ services:
     container_name: konsolx
     restart: unless-stopped
     ports:
-      - "8012:8012"
+      - "${PORT:-8012}:${PORT:-8012}"
     environment:
-      PORT: "8012"
+      PORT: "${PORT:-8012}"
       DATA_DIR: /data
       USE_HOST_SHELL: "true"
       HOST_USER: "${HOST_USER}"
