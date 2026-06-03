@@ -61,7 +61,19 @@ if (!hasQcGrp) {
 // Seed sample workspace (Removed as requested)
 db.prepare("DELETE FROM workspaces WHERE id = 'sample-work'").run();
 
-// Seed sample environments (Removed as requested)
+// Seed built-in "Konsolx Update" quick command (once, never overwrite if user edits it)
+const hostUser = process.env.HOST_USER;
+const updateCwd = hostUser ? `/home/${hostUser}` : '';
+const existing = db.prepare("SELECT id FROM quick_commands WHERE id = 'konsolx-update'").get();
+if (!existing) {
+  db.prepare("INSERT INTO quick_commands (id, name, command, cwd, grp) VALUES (?, ?, ?, ?, ?)").run(
+    'konsolx-update',
+    'Konsolx Update',
+    'docker compose pull && HOST_USER=$(whoami) docker compose up -d',
+    updateCwd || null,
+    'Konsolx'
+  );
+}
 
 async function startServer() {
   const app = express();
@@ -538,16 +550,41 @@ async function startServer() {
       }
     });
 
-    ws.on("close", () => {
+    ws.on("close", async () => {
       sessionShells.delete(sessionId);
-      if (shellProcess && shellProcess.pid) {
-        try {
-          // Kill the whole process group (negative PID kills the group)
-          process.kill(-shellProcess.pid);
-        } catch (e) {
-          // Fallback if group kill fails
-          shellProcess.kill();
+      if (!shellProcess || !shellProcess.pid) return;
+
+      const pid = shellProcess.pid;
+      shellProcess = null; // prevent double-kill
+
+      try {
+        // Get the process group ID of the spawned process
+        const pgidResult = await new Promise<string>((resolve) => {
+          const p = spawn("ps", ["-o", "pgid=", "-p", String(pid)]);
+          let out = "";
+          p.stdout.on("data", (d) => out += d.toString());
+          p.on("close", () => resolve(out.trim()));
+          p.on("error", () => resolve(""));
+        });
+
+        const pgid = Number(pgidResult);
+        if (pgid > 1) {
+          // Kill entire process group
+          try { process.kill(-pgid, "SIGKILL"); } catch (_) {}
         }
+
+        // Also kill by PID tree — walk all descendants and kill them
+        const killTree = async (rootPid: number) => {
+          const children = await getChildPids(rootPid);
+          for (const child of children) {
+            await killTree(child);
+          }
+          try { process.kill(rootPid, "SIGKILL"); } catch (_) {}
+        };
+        await killTree(pid);
+      } catch (_) {
+        // Last resort
+        try { process.kill(pid, "SIGKILL"); } catch (_) {}
       }
     });
   });
