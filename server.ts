@@ -273,14 +273,26 @@ async function startServer() {
             if (useHostShell) {
               ws.send(JSON.stringify({ type: "output", data: "\x1b[1;32m[Connected to Host Shell]\x1b[0m\r\n" }));
 
-              // su - resets cwd to HOME. Send cd first, then initialCommand after,
-              // so the command always runs in the correct directory.
+              // su - resets the environment and cwd. After the shell is ready,
+              // export env vars, cd to cwd, then run initialCommand — in order.
               const { initialCommand } = data;
               setTimeout(() => {
                 if (!shellProcess || !shellProcess.stdin.writable) return;
+
+                // 1. Export env vars passed from the UI
+                if (env && Object.keys(env).length > 0) {
+                  const exports = Object.entries(env)
+                    .map(([k, v]) => `export ${k}=${JSON.stringify(v)}`)
+                    .join('\n');
+                  shellProcess.stdin.write(`${exports}\n`);
+                }
+
+                // 2. cd to workspace directory
                 if (cwd && path.isAbsolute(cwd)) {
                   shellProcess.stdin.write(`cd "${cwd}"\n`);
                 }
+
+                // 3. Run initial command (e.g. quick command)
                 if (initialCommand) {
                   setTimeout(() => {
                     if (shellProcess && shellProcess.stdin.writable) {
