@@ -10,13 +10,40 @@ Every terminal you open runs **directly on your host machine** — same filesyst
 
 **Requirements:** Docker + Docker Compose on a Linux machine.
 
+### 1. Get the compose file
+
+```bash
+curl -O https://raw.githubusercontent.com/adhranjan/konsolx/main/docker-compose.yml
+```
+
+Or clone the repo:
+
+```bash
+git clone https://github.com/adhranjan/konsolx.git
+cd konsolx
+```
+
+### 2. Pull the latest image
+
+```bash
+docker pull ghcr.io/adhranjan/konsolx:latest
+```
+
+### 3. Start
+
 ```bash
 HOST_USER=$(whoami) docker compose up -d
 ```
 
 Open **http://localhost:8012** in your browser.
 
-That's it. No install, no build. Docker pulls the image automatically.
+### Custom port
+
+```bash
+PORT=9000 HOST_USER=$(whoami) docker compose up -d
+```
+
+Open **http://localhost:9000**.
 
 ### Stop
 
