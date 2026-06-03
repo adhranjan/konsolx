@@ -143,13 +143,9 @@ export default function App() {
       if (e.ctrlKey && (e.key === 'u' || e.key === 'U')) { e.preventDefault(); return; }
     };
 
-    const blockContext = (e: MouseEvent) => e.preventDefault();
-
     document.addEventListener('keydown', block);
-    document.addEventListener('contextmenu', blockContext);
     return () => {
       document.removeEventListener('keydown', block);
-      document.removeEventListener('contextmenu', blockContext);
     };
   }, [serverConfig]);
 
