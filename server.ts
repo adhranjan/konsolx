@@ -102,9 +102,12 @@ async function startServer() {
         }
       } catch (_) {}
     }
+    const hostOs = process.env.HOST_OS || null;
     res.json({
       useHostShell: process.env.USE_HOST_SHELL === "true",
+      useSshShell: process.env.USE_SSH_SHELL === "true",
       platform: os.platform(),
+      hostOs,
       isDev: process.env.KONSOLX_ENV === "dev",
       updateAvailable,
     });
@@ -377,16 +380,25 @@ async function startServer() {
         const startShell = (shellToTry: string) => {
           try {
             const isWindows = os.platform() === "win32";
-            const useHostShell = process.env.USE_HOST_SHELL === "true";
+            const useSshShell = process.env.USE_SSH_SHELL === "true";
+            const useHostShell = !useSshShell && process.env.USE_HOST_SHELL === "true";
             let finalShell = shellToTry;
             let finalArgs = [...shellArgs];
 
-            // Use python3 pty trick to get a real terminal if on Unix
-            // This fixes "Inappropriate ioctl for device" and provides a better prompt
             if (!isWindows) {
-              if (useHostShell) {
-                // Use nsenter to enter host namespaces
-                // We need to be root and have --privileged or CAP_SYS_ADMIN
+              if (useSshShell) {
+                // Mac mode: SSH back to host.docker.internal
+                // Requires: Remote Login enabled on Mac + ~/.ssh mounted into container
+                const hostUser = process.env.HOST_USER;
+                if (!hostUser) {
+                  console.warn('[konsolx] HOST_USER is not set for SSH shell mode.');
+                }
+                const sshTarget = `${hostUser || 'user'}@host.docker.internal`;
+                const pythonCode = `import pty, signal; signal.signal(signal.SIGINT, signal.SIG_IGN); pty.spawn(["ssh", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null", "-t", "${sshTarget}"])`;
+                finalShell = "python3";
+                finalArgs = ["-c", pythonCode];
+              } else if (useHostShell) {
+                // Linux mode: nsenter to enter host namespaces
                 finalShell = "nsenter";
                 finalArgs = ["-t", "1", "-m", "-u", "-i", "-n", "-p"];
 
@@ -394,9 +406,6 @@ async function startServer() {
                 if (!hostUser) {
                   console.warn('[konsolx] HOST_USER is not set. Terminals will run as root with no user environment. Set HOST_USER=$(whoami) in your compose command.');
                 }
-                // If HOST_USER is set, pty.spawn su so the host user's shell init
-                // files (.bashrc, nvm, etc.) load with the correct HOME.
-                // Otherwise fall back to spawning the shell directly (runs as root).
                 const ptyTarget = hostUser
                   ? `["su", "-", "${hostUser}"]`
                   : `"${shellToTry}"`;
@@ -407,8 +416,6 @@ async function startServer() {
                 finalArgs.push("sh", "-c", wrappedCommand);
               } else {
                 finalShell = "python3";
-                // Use a robust one-liner that ignores SIGINT in the wrapper itself
-                // so we don't get tracebacks, but the signal still reaches the child shell.
                 const pythonCode = `import pty, signal; signal.signal(signal.SIGINT, signal.SIG_IGN); pty.spawn("${shellToTry}")`;
                 finalArgs = ["-c", pythonCode];
               }
@@ -465,12 +472,13 @@ async function startServer() {
 
             const { initialCommand } = data;
 
-            if (useHostShell) {
+            if (useHostShell || useSshShell) {
               const hostUser = process.env.HOST_USER;
               if (!hostUser) {
                 ws.send(JSON.stringify({ type: "output", data: "\x1b[1;33m[Warning: HOST_USER not set — running as root. Start with: HOST_USER=$(whoami) docker compose up -d]\x1b[0m\r\n" }));
               }
-              ws.send(JSON.stringify({ type: "output", data: "\x1b[1;32m[Connected to Host Shell]\x1b[0m\r\n" }));
+              const label = useSshShell ? "Connected via SSH to Mac Host" : "Connected to Host Shell";
+              ws.send(JSON.stringify({ type: "output", data: `\x1b[1;32m[${label}]\x1b[0m\r\n` }));
             }
 
             // Wait for the shell prompt before sending setup commands.

@@ -114,7 +114,7 @@ export default function App() {
       setKillPortStatus({ message: 'Request failed', type: 'error' });
     }
   };
-  const [serverConfig, setServerConfig] = useState<{ useHostShell: boolean; platform: string; isDev: boolean; updateAvailable: string | null } | null>(null);
+  const [serverConfig, setServerConfig] = useState<{ useHostShell: boolean; useSshShell: boolean; platform: string; hostOs: string | null; isDev: boolean; updateAvailable: string | null } | null>(null);
   const [updateDismissed, setUpdateDismissed] = useState(false);
 
   // Fetch initial data
@@ -863,6 +863,14 @@ export default function App() {
           </button>
         </div>
       </div>
+
+      {/* Windows not supported banner */}
+      {serverConfig?.hostOs === 'windows' && (
+        <div className="bg-red-500/10 border-b border-red-500/20 px-4 py-2 flex items-center gap-2 text-xs text-red-300 shrink-0">
+          <AlertTriangle size={12} />
+          <span>Windows is not supported yet. Konsolx requires Linux or Mac. See the README for details.</span>
+        </div>
+      )}
 
       {/* Update banner */}
       <AnimatePresence>

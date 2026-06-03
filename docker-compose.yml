@@ -1,20 +1,19 @@
 # Konsolx — browser-based terminal workspace manager
 #
-# QUICK START:
+# ── LINUX ───────────────────────────────────────────────────────────────────
 #   HOST_USER=$(whoami) docker compose up -d
-#   Open http://localhost:8012
 #
-# CUSTOM PORT:
-#   PORT=9000 HOST_USER=$(whoami) docker compose up -d
+# ── MAC ─────────────────────────────────────────────────────────────────────
+#   1. Enable Remote Login: System Settings → General → Sharing → Remote Login
+#   2. USE_SSH_SHELL=true HOST_USER=$(whoami) docker compose up -d
 #
-# DEV MODE (enables browser DevTools):
-#   KONSOLX_ENV=dev HOST_USER=$(whoami) docker compose up -d
+# ── WINDOWS ─────────────────────────────────────────────────────────────────
+#   Not supported yet.
 #
-# STOP:
-#   docker compose down
-#
-# HOST_USER is required — it sets which user's shell and environment
-# (nvm, PATH, etc.) the terminals run as on your host machine.
+# ── OPTIONS ─────────────────────────────────────────────────────────────────
+#   Custom port:  PORT=9000 HOST_USER=$(whoami) docker compose up -d
+#   Dev mode:     KONSOLX_ENV=dev HOST_USER=$(whoami) docker compose up -d
+#   Stop:         docker compose down
 
 services:
   konsolx:
@@ -26,11 +25,14 @@ services:
     environment:
       PORT: "${PORT:-8012}"
       DATA_DIR: /data
-      USE_HOST_SHELL: "true"
+      USE_HOST_SHELL: "${USE_HOST_SHELL:-true}"
+      USE_SSH_SHELL: "${USE_SSH_SHELL:-false}"
       HOST_USER: "${HOST_USER}"
+      HOST_OS: "${HOST_OS:-linux}"
       KONSOLX_ENV: "${KONSOLX_ENV:-release}"
     volumes:
       - konsolx-data:/data
+      - ~/.ssh:/root/.ssh:ro
     privileged: true
     pid: host
 
