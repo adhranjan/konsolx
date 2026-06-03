@@ -213,8 +213,15 @@ async function startServer() {
         res.json({ success: true, message: `Killed PIDs ${pids.join(", ")} on port ${port}` });
       } else {
         // Linux/Mac: lsof to find PIDs, then kill
+        // When USE_HOST_SHELL is true (Docker), use nsenter to reach host network namespace
+        const useHostShell = process.env.USE_HOST_SHELL === "true";
+        const lsofArgs = useHostShell
+          ? ["-t", "1", "-n", "--", "lsof", "-ti", `:${port}`]
+          : ["-ti", `:${port}`];
+        const lsofCmd = useHostShell ? "nsenter" : "lsof";
+
         const { stdout } = await new Promise<{ stdout: string }>((resolve, reject) => {
-          const proc = spawn("lsof", ["-ti", `:${port}`]);
+          const proc = spawn(lsofCmd, lsofArgs);
           let out = "";
           proc.stdout.on("data", (d) => out += d.toString());
           proc.on("close", () => resolve({ stdout: out }));
@@ -222,8 +229,20 @@ async function startServer() {
         });
         const pids = stdout.trim().split("\n").filter(Boolean);
         if (pids.length === 0) return res.status(404).json({ error: `Nothing found on port ${port}` });
-        for (const pid of pids) {
-          try { process.kill(Number(pid), "SIGKILL"); } catch (_) {}
+
+        if (useHostShell) {
+          // Kill via nsenter into host PID namespace so process.kill targets host PIDs
+          for (const pid of pids) {
+            await new Promise((resolve) => {
+              const proc = spawn("nsenter", ["-t", "1", "-n", "-p", "--", "kill", "-9", pid]);
+              proc.on("close", resolve);
+              proc.on("error", resolve);
+            });
+          }
+        } else {
+          for (const pid of pids) {
+            try { process.kill(Number(pid), "SIGKILL"); } catch (_) {}
+          }
         }
         res.json({ success: true, message: `Killed PIDs ${pids.join(", ")} on port ${port}` });
       }
