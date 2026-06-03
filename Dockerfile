@@ -17,7 +17,6 @@ RUN npm run build
 FROM node:22-bookworm-slim AS runner
 WORKDIR /app
 ENV NODE_ENV=production
-ENV PORT=8012
 ENV DATA_DIR=/data
 
 # python3: needed at runtime for pty.spawn() shell trick.

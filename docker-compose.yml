@@ -1,6 +1,6 @@
 services:
   konsolx:
-    build: .
+    image: ghcr.io/adhranjan/konsolx:latest
     container_name: konsolx
     restart: unless-stopped
     ports:
