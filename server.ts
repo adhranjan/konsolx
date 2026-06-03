@@ -168,6 +168,60 @@ async function startServer() {
     res.json({ success: true });
   });
 
+  // Kill port API
+  app.post("/api/kill-port", async (req, res) => {
+    const { port } = req.body;
+    if (!port || isNaN(Number(port))) {
+      return res.status(400).json({ error: "Invalid port number" });
+    }
+
+    const platform = os.platform();
+
+    try {
+      if (platform === "win32") {
+        // Windows: find PID via netstat, then taskkill
+        const { stdout } = await new Promise<{ stdout: string }>((resolve, reject) => {
+          const proc = spawn("netstat", ["-ano"]);
+          let out = "";
+          proc.stdout.on("data", (d) => out += d.toString());
+          proc.on("close", () => resolve({ stdout: out }));
+          proc.on("error", reject);
+        });
+        const pids = [...new Set(
+          stdout.split("\n")
+            .filter(line => line.includes(`:${port} `) || line.includes(`:${port}\t`))
+            .map(line => line.trim().split(/\s+/).pop())
+            .filter(Boolean)
+        )];
+        if (pids.length === 0) return res.status(404).json({ error: `Nothing found on port ${port}` });
+        for (const pid of pids) {
+          await new Promise((resolve) => {
+            const proc = spawn("taskkill", ["/PID", pid!, "/F"]);
+            proc.on("close", resolve);
+          });
+        }
+        res.json({ success: true, message: `Killed PIDs ${pids.join(", ")} on port ${port}` });
+      } else {
+        // Linux/Mac: lsof to find PIDs, then kill
+        const { stdout } = await new Promise<{ stdout: string }>((resolve, reject) => {
+          const proc = spawn("lsof", ["-ti", `:${port}`]);
+          let out = "";
+          proc.stdout.on("data", (d) => out += d.toString());
+          proc.on("close", () => resolve({ stdout: out }));
+          proc.on("error", reject);
+        });
+        const pids = stdout.trim().split("\n").filter(Boolean);
+        if (pids.length === 0) return res.status(404).json({ error: `Nothing found on port ${port}` });
+        for (const pid of pids) {
+          try { process.kill(Number(pid), "SIGKILL"); } catch (_) {}
+        }
+        res.json({ success: true, message: `Killed PIDs ${pids.join(", ")} on port ${port}` });
+      }
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   // WebSocket for Terminal
   const getShell = () => {
     if (os.platform() === "win32") return "cmd.exe";

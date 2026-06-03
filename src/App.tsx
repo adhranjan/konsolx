@@ -22,7 +22,9 @@ import {
   Search,
   Command,
   Monitor,
-  Copy
+  Copy,
+  Zap,
+  AlertTriangle
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import TerminalComponent from './components/TerminalComponent';
@@ -64,6 +66,31 @@ export default function App() {
   const [qcCommand, setQcCommand] = useState('');
   const [qcCwd, setQcCwd] = useState('');
   const [importStatus, setImportStatus] = useState<{ message: string; type: 'info' | 'error' | 'success' } | null>(null);
+  const [killPort, setKillPort] = useState('');
+  const [killPortStatus, setKillPortStatus] = useState<{ message: string; type: 'error' | 'success' } | null>(null);
+  const [isKillPortModalOpen, setIsKillPortModalOpen] = useState(false);
+
+  const handleKillPort = async () => {
+    if (!killPort.trim()) return;
+    setKillPortStatus(null);
+    try {
+      const res = await fetch('/api/kill-port', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ port: killPort.trim() })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setKillPortStatus({ message: data.message, type: 'success' });
+        setKillPort('');
+        setTimeout(() => { setIsKillPortModalOpen(false); setKillPortStatus(null); }, 1500);
+      } else {
+        setKillPortStatus({ message: data.error, type: 'error' });
+      }
+    } catch {
+      setKillPortStatus({ message: 'Request failed', type: 'error' });
+    }
+  };
   const [serverConfig, setServerConfig] = useState<{ useHostShell: boolean; platform: string } | null>(null);
 
   // Fetch initial data
@@ -738,7 +765,15 @@ export default function App() {
           </div>
         </div>
         <div className="flex items-center gap-4">
-          <button 
+          <button
+            onClick={() => { setKillPort(''); setKillPortStatus(null); setIsKillPortModalOpen(true); }}
+            className="flex items-center gap-1.5 px-2 py-1 rounded bg-white/5 hover:bg-red-500/10 hover:text-red-400 text-[10px] text-white/40 transition-colors"
+            title="Kill Port"
+          >
+            <Zap size={12} />
+            <span>Kill Port</span>
+          </button>
+          <button
             onClick={() => setIsCommandPaletteOpen(true)}
             className="flex items-center gap-2 px-2 py-1 rounded bg-white/5 hover:bg-white/10 text-[10px] text-white/40 transition-colors"
           >
@@ -1640,6 +1675,51 @@ export default function App() {
             </button>
           </div>
         </form>
+      </Modal>
+
+      <Modal
+        isOpen={isKillPortModalOpen}
+        onClose={() => { setIsKillPortModalOpen(false); setKillPortStatus(null); setKillPort(''); }}
+        title="Kill Port"
+      >
+        <div className="space-y-4">
+          <div className="flex items-start gap-3 p-3 rounded-lg bg-red-500/5 border border-red-500/15">
+            <AlertTriangle size={16} className="text-red-400 mt-0.5 shrink-0" />
+            <p className="text-xs text-white/50">This will forcefully terminate the process listening on the port. Make sure you know what's running there.</p>
+          </div>
+          <div>
+            <label className="block text-xs font-bold text-white/40 uppercase mb-1">Port Number</label>
+            <input
+              autoFocus
+              type="number"
+              value={killPort}
+              onChange={e => setKillPort(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && handleKillPort()}
+              placeholder="e.g. 3000"
+              className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:border-red-500/50 transition-colors"
+            />
+          </div>
+          {killPortStatus && (
+            <div className={`text-xs px-3 py-2 rounded-lg ${killPortStatus.type === 'success' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'bg-red-500/10 text-red-400 border border-red-500/20'}`}>
+              {killPortStatus.message}
+            </div>
+          )}
+          <div className="flex justify-end gap-2 pt-1">
+            <button
+              onClick={() => { setIsKillPortModalOpen(false); setKillPortStatus(null); setKillPort(''); }}
+              className="px-4 py-2 text-sm text-white/40 hover:text-white transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={handleKillPort}
+              disabled={!killPort.trim()}
+              className="px-4 py-2 bg-red-500 hover:bg-red-400 disabled:opacity-30 disabled:cursor-not-allowed text-white font-semibold rounded-lg transition-colors text-sm flex items-center gap-2"
+            >
+              <Zap size={14} /> Kill Port {killPort && `${killPort}`}
+            </button>
+          </div>
+        </div>
       </Modal>
     </div>
     </div>
