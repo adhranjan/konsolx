@@ -6,7 +6,9 @@
 #
 # CUSTOM PORT:
 #   PORT=9000 HOST_USER=$(whoami) docker compose up -d
-#   Open http://localhost:9000
+#
+# DEV MODE (enables browser DevTools):
+#   KONSOLX_ENV=dev HOST_USER=$(whoami) docker compose up -d
 #
 # STOP:
 #   docker compose down

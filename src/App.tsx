@@ -143,9 +143,18 @@ export default function App() {
       if (e.ctrlKey && (e.key === 'u' || e.key === 'U')) { e.preventDefault(); return; }
     };
 
+    const blockContext = (e: MouseEvent) => {
+      const target = e.target as HTMLElement;
+      // Allow context menu on inputs and textareas so copy/paste still works
+      const isEditable = target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable;
+      if (!isEditable) e.preventDefault();
+    };
+
     document.addEventListener('keydown', block);
+    document.addEventListener('contextmenu', blockContext);
     return () => {
       document.removeEventListener('keydown', block);
+      document.removeEventListener('contextmenu', blockContext);
     };
   }, [serverConfig]);
 
