@@ -51,23 +51,15 @@ const TerminalComponent: React.FC<TerminalComponentProps> = ({ cwd, env, shell, 
     wsRef.current = ws;
 
     ws.onopen = () => {
-      ws.send(JSON.stringify({ 
-        type: 'init', 
-        cwd, 
-        env, 
+      ws.send(JSON.stringify({
+        type: 'init',
+        cwd,
+        env,
         shell,
+        initialCommand,
         cols: term.cols,
         rows: term.rows
       }));
-
-      if (initialCommand) {
-        // Wait a bit for the shell to be ready
-        setTimeout(() => {
-          if (ws.readyState === WebSocket.OPEN) {
-            ws.send(JSON.stringify({ type: 'input', data: initialCommand + '\n' }));
-          }
-        }, 500);
-      }
     };
 
     ws.onmessage = (event) => {

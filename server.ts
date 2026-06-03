@@ -273,14 +273,22 @@ async function startServer() {
             if (useHostShell) {
               ws.send(JSON.stringify({ type: "output", data: "\x1b[1;32m[Connected to Host Shell]\x1b[0m\r\n" }));
 
-              // su - resets cwd to HOME, so send cd after the shell is ready
-              if (cwd && path.isAbsolute(cwd)) {
-                setTimeout(() => {
-                  if (shellProcess && shellProcess.stdin.writable) {
-                    shellProcess.stdin.write(`cd "${cwd}"\n`);
-                  }
-                }, 800);
-              }
+              // su - resets cwd to HOME. Send cd first, then initialCommand after,
+              // so the command always runs in the correct directory.
+              const { initialCommand } = data;
+              setTimeout(() => {
+                if (!shellProcess || !shellProcess.stdin.writable) return;
+                if (cwd && path.isAbsolute(cwd)) {
+                  shellProcess.stdin.write(`cd "${cwd}"\n`);
+                }
+                if (initialCommand) {
+                  setTimeout(() => {
+                    if (shellProcess && shellProcess.stdin.writable) {
+                      shellProcess.stdin.write(`${initialCommand}\n`);
+                    }
+                  }, 300);
+                }
+              }, 800);
             }
 
             shellProcess.stdout.on("data", (data) => {
