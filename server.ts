@@ -1,3 +1,4 @@
+import "dotenv/config";
 import express from "express";
 import { createServer } from "http";
 import { WebSocketServer, WebSocket } from "ws";
@@ -404,16 +405,32 @@ async function startServer() {
               ws.close();
             });
 
+            const { initialCommand } = data;
+
             if (useHostShell) {
               ws.send(JSON.stringify({ type: "output", data: "\x1b[1;32m[Connected to Host Shell]\x1b[0m\r\n" }));
+            }
 
-              // su - resets the environment and cwd. After the shell is ready,
-              // export env vars, cd to cwd, then run initialCommand — in order.
-              const { initialCommand } = data;
-              setTimeout(() => {
+            // Wait for the shell prompt before sending setup commands.
+            // This is more reliable than a fixed timeout — works regardless of
+            // how long su - / nvm / .bashrc takes to initialize.
+            const hasSetup = (env && Object.keys(env).length > 0) || (cwd && path.isAbsolute(cwd)) || initialCommand;
+            if (hasSetup) {
+              let promptDetected = false;
+              const PROMPT_RE = /[\$#%>]\s*$/m;
+              let promptBuf = '';
+
+              const onData = (chunk: Buffer) => {
+                if (promptDetected) return;
+                promptBuf += chunk.toString();
+                // Keep only last 512 chars to avoid unbounded growth
+                if (promptBuf.length > 512) promptBuf = promptBuf.slice(-512);
+                if (!PROMPT_RE.test(promptBuf)) return;
+                promptDetected = true;
+
                 if (!shellProcess || !shellProcess.stdin.writable) return;
 
-                // 1. Export env vars passed from the UI
+                // 1. Export env vars
                 if (env && Object.keys(env).length > 0) {
                   const exports = Object.entries(env)
                     .map(([k, v]) => `export ${k}=${JSON.stringify(v)}`)
@@ -421,20 +438,32 @@ async function startServer() {
                   shellProcess.stdin.write(`${exports}\n`);
                 }
 
-                // 2. cd to workspace directory
+                // 2. cd to directory
                 if (cwd && path.isAbsolute(cwd)) {
                   shellProcess.stdin.write(`cd "${cwd}"\n`);
                 }
 
-                // 3. Run initial command (e.g. quick command)
+                // 3. Run initial command
                 if (initialCommand) {
-                  setTimeout(() => {
-                    if (shellProcess && shellProcess.stdin.writable) {
-                      shellProcess.stdin.write(`${initialCommand}\n`);
-                    }
-                  }, 300);
+                  shellProcess.stdin.write(`${initialCommand}\n`);
                 }
-              }, 800);
+              };
+
+              shellProcess.stdout.once('data', function waitForPrompt(chunk) {
+                onData(chunk);
+                if (!promptDetected) {
+                  shellProcess!.stdout.once('data', waitForPrompt);
+                }
+              });
+
+              // Fallback: if prompt never detected within 5s, send anyway
+              setTimeout(() => {
+                if (!promptDetected && shellProcess?.stdin.writable) {
+                  promptDetected = true;
+                  if (cwd && path.isAbsolute(cwd)) shellProcess.stdin.write(`cd "${cwd}"\n`);
+                  if (initialCommand) shellProcess.stdin.write(`${initialCommand}\n`);
+                }
+              }, 5000);
             }
 
             shellProcess.stdout.on("data", (data) => {
@@ -498,7 +527,7 @@ async function startServer() {
   } else {
     app.use(express.static("dist"));
   }
-  const PORT = process.env.PORT || 8015;
+  const PORT = process.env.PORT;
   server.listen(Number(PORT), "0.0.0.0", () => {
     console.log(`Server running on http://localhost:${PORT}`);
   });

@@ -12,9 +12,10 @@ interface TerminalComponentProps {
   onClose: () => void;
   onSessionReady?: (sessionId: string) => void;
   onSessionEnd?: () => void;
+  onInputReady?: (sendInput: (cmd: string) => void) => void;
 }
 
-const TerminalComponent: React.FC<TerminalComponentProps> = ({ cwd, env, shell, initialCommand, onClose, onSessionReady, onSessionEnd }) => {
+const TerminalComponent: React.FC<TerminalComponentProps> = ({ cwd, env, shell, initialCommand, onClose, onSessionReady, onSessionEnd, onInputReady }) => {
   const terminalRef = useRef<HTMLDivElement>(null);
   const xtermRef = useRef<Terminal | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
@@ -62,6 +63,12 @@ const TerminalComponent: React.FC<TerminalComponentProps> = ({ cwd, env, shell, 
         cols: term.cols,
         rows: term.rows
       }));
+
+      onInputReady?.((cmd: string) => {
+        if (ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({ type: 'input', data: cmd + '\n' }));
+        }
+      });
     };
 
     ws.onmessage = (event) => {

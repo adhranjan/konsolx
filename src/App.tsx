@@ -24,7 +24,8 @@ import {
   Monitor,
   Copy,
   Zap,
-  AlertTriangle
+  AlertTriangle,
+  ExternalLink
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import TerminalComponent from './components/TerminalComponent';
@@ -70,6 +71,7 @@ export default function App() {
   const [killPortStatus, setKillPortStatus] = useState<{ message: string; type: 'error' | 'success' } | null>(null);
   const [isKillPortModalOpen, setIsKillPortModalOpen] = useState(false);
   const tabSessionsRef = useRef<Map<string, string>>(new Map());
+  const tabInputsRef = useRef<Map<string, (cmd: string) => void>>(new Map());
   const [busyToast, setBusyToast] = useState(false);
 
   const showBusyToast = () => {
@@ -499,6 +501,13 @@ export default function App() {
     addTab(qc.cwd || '.', qc.name, undefined, qc.command);
   };
 
+  const runQuickCommandInCurrentTab = (qc: QuickCommand) => {
+    if (!activeTabId) return runQuickCommand(qc);
+    const sendInput = tabInputsRef.current.get(activeTabId);
+    if (!sendInput) return runQuickCommand(qc);
+    sendInput(qc.command);
+  };
+
   const handleSaveTabSettings = (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingTabSettings) return;
@@ -898,12 +907,19 @@ export default function App() {
             <div className="space-y-1">
               {quickCommands.map(qc => (
                 <div key={qc.id} className="group flex items-center gap-2 px-2 py-1.5 rounded hover:bg-white/5 transition-colors cursor-pointer">
-                  <div className="flex-1 flex items-center gap-2" onClick={() => runQuickCommand(qc)}>
+                  <div className="flex-1 flex items-center gap-2" onClick={() => runQuickCommandInCurrentTab(qc)}>
                     <Command size={14} className="text-emerald-400" />
                     <span className="text-sm truncate font-medium">{qc.name}</span>
                   </div>
-                  <button 
-                    onClick={(e) => { e.stopPropagation(); openQuickCommandModal(qc); }} 
+                  <button
+                    onClick={(e) => { e.stopPropagation(); runQuickCommand(qc); }}
+                    className="opacity-0 group-hover:opacity-100 p-1 hover:text-blue-400 transition-opacity"
+                    title="Run in new tab"
+                  >
+                    <ExternalLink size={12} />
+                  </button>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); openQuickCommandModal(qc); }}
                     className="opacity-0 group-hover:opacity-100 p-1 hover:text-emerald-400 transition-opacity"
                   >
                     <Edit3 size={12} />
@@ -1244,7 +1260,8 @@ export default function App() {
                   })()} 
                   onClose={() => closeTab(tab.id)}
                   onSessionReady={(sessionId) => tabSessionsRef.current.set(tab.id, sessionId)}
-                  onSessionEnd={() => tabSessionsRef.current.delete(tab.id)}
+                  onSessionEnd={() => { tabSessionsRef.current.delete(tab.id); tabInputsRef.current.delete(tab.id); }}
+                  onInputReady={(fn) => tabInputsRef.current.set(tab.id, fn)}
                 />
               </div>
             ))
