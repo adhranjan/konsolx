@@ -1,0 +1,38 @@
+# Konsolx — standard mode (terminals run inside the container)
+#
+# Use this when you want an isolated terminal environment, or you're on Docker Desktop.
+# For terminals that run on the host machine, use docker-compose.host-shell.yml instead.
+#
+# RUN (pull pre-built image):
+#   docker compose up -d
+#
+# RUN (build locally from source):
+#   docker compose up -d --build
+#
+# Bind-mount host directories so they're reachable from terminals:
+#   Uncomment the volume lines below, then add the path to Docker → Settings →
+#   Resources → File sharing if on Docker Desktop.
+#
+# STOP:
+#   docker compose down
+
+services:
+  konsolx:
+    image: ghcr.io/adhranjan/konsolx:latest
+    # To build locally from source instead:
+    # build: .
+    container_name: konsolx
+    restart: unless-stopped
+    ports:
+      - "8012:8012"
+    environment:
+      PORT: "8012"
+      DATA_DIR: /data
+      USE_HOST_SHELL: "false"
+    volumes:
+      - konsolx-data:/data
+      # Bind-mount host directories to access them from terminals:
+      # - /home/youruser/projects:/home/youruser/projects
+
+volumes:
+  konsolx-data:

@@ -1,0 +1,50 @@
+# Konsolx — host-shell mode
+#
+# Terminals spawned by the UI run directly on the host OS (same filesystem,
+# same tools, same network). The container only hosts the web UI and API.
+#
+# REQUIREMENTS:
+#   - Linux host with Docker Engine (moby / docker-ce). Works on Fedora, Ubuntu, Arch, etc.
+#   - Does NOT work as intended on Docker Desktop (Mac/Windows) — nsenter lands in the
+#     LinuxKit VM, not your actual Mac/Windows host. Use bind-mounts instead there.
+#
+# HOW IT WORKS:
+#   privileged + pid: host lets the server call nsenter(1) to enter all of the
+#   host's Linux namespaces (mount, PID, net, UTS, IPC). Every terminal you open
+#   is effectively a shell on the host machine, with the host's PATH, filesystem,
+#   and running processes visible.
+#
+# RUN:
+#   docker compose -f docker-compose.host-shell.yml up -d
+#   open http://localhost:8012
+#
+# STOP:
+#   docker compose -f docker-compose.host-shell.yml down
+#
+# PULL latest image:
+#   docker compose -f docker-compose.host-shell.yml pull
+#
+# Security note: --privileged grants the container full host access.
+# Only run this on machines you trust and control.
+
+services:
+  konsolx:
+    build: .
+    container_name: konsolx
+    restart: unless-stopped
+    ports:
+      - "8012:8012"
+    environment:
+      PORT: "8012"
+      DATA_DIR: /data
+      USE_HOST_SHELL: "true"
+      # Set to your Linux username so terminals start as you (not root).
+      # This ensures your shell rc files (.bashrc, nvm, etc.) are loaded correctly.
+      HOST_USER: "${HOST_USER:-}"
+    volumes:
+      - konsolx-data:/data
+    privileged: true
+    pid: host
+
+volumes:
+  konsolx-data:

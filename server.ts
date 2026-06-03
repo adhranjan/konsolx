@@ -7,7 +7,8 @@ import os from "os";
 import path from "path";
 import Database from "better-sqlite3";
 
-const db = new Database("terminal.db");
+const dataDir = process.env.DATA_DIR || ".";
+const db = new Database(`${dataDir}/terminal.db`);
 
 // Initialize DB
 db.exec(`
@@ -200,19 +201,17 @@ async function startServer() {
                 // Use nsenter to enter host namespaces
                 // We need to be root and have --privileged or CAP_SYS_ADMIN
                 finalShell = "nsenter";
-                const pythonCode = `import pty, signal; signal.signal(signal.SIGINT, signal.SIG_IGN); pty.spawn("${shellToTry}")`;
-                
-                // -t 1: target PID 1 (host init)
-                // -m: mount namespace (host filesystem)
-                // -u: UTS namespace (host hostname)
-                // -i: IPC namespace
-                // -n: network namespace (host network)
-                // -p: PID namespace (see host processes)
                 finalArgs = ["-t", "1", "-m", "-u", "-i", "-n", "-p"];
-                
-                // Use sh to provide a fallback if python3 is not available or fails on the host
-                // We do the 'cd' inside the shell command instead of using nsenter --wd
-                // to avoid compatibility issues with older nsenter versions.
+
+                const hostUser = process.env.HOST_USER;
+                // If HOST_USER is set, pty.spawn su so the host user's shell init
+                // files (.bashrc, nvm, etc.) load with the correct HOME.
+                // Otherwise fall back to spawning the shell directly.
+                const ptyTarget = hostUser
+                  ? `["su", "-", "${hostUser}"]`
+                  : `"${shellToTry}"`;
+                const pythonCode = `import pty, signal; signal.signal(signal.SIGINT, signal.SIG_IGN); pty.spawn(${ptyTarget})`;
+
                 const cdCommand = (cwd && path.isAbsolute(cwd)) ? `cd "${cwd}" 2>/dev/null || cd /; ` : "cd /; ";
                 const wrappedCommand = `export KONSOLX_HOST=true; ${cdCommand}if command -v python3 >/dev/null 2>&1; then python3 -c '${pythonCode}' 2>/dev/null || exec ${shellToTry} -i; else exec ${shellToTry} -i; fi`;
                 finalArgs.push("sh", "-c", wrappedCommand);
@@ -228,23 +227,24 @@ async function startServer() {
             console.log(`Spawning: ${finalShell} ${finalArgs.join(' ')}`);
             console.log(`CWD: ${useHostShell ? 'Host' : (cwd || process.cwd())}`);
 
-            // When using host shell, we want a clean environment to avoid container variables 
-            // (like PYTHONPATH or LD_LIBRARY_PATH) interfering with host binaries.
-            let spawnEnv: any = { ...process.env, ...env };
-            console.log({spawnEnv});
+            // Build spawn environment.
+            // In host-shell mode: start with a minimal base so container-specific vars
+            // (PYTHONPATH, LD_LIBRARY_PATH, etc.) don't bleed into the host.
+            // Crucially, do NOT hardcode HOME or PATH — let the host shell's rc files
+            // (e.g. ~/.bashrc with nvm) initialise those naturally.
+            let spawnEnv: any;
             if (useHostShell) {
-              // Remove container-specific variables that interfere with host binaries
-              delete spawnEnv.PYTHONPATH;
-              delete spawnEnv.PYTHONHOME;
-              delete spawnEnv.LD_LIBRARY_PATH;
-              delete spawnEnv.NODE_ENV;
-              
-              spawnEnv.TERM = "xterm-256color";
-              spawnEnv.PATH = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin";
-              spawnEnv.LANG = "en_US.UTF-8";
-              spawnEnv.HOME = "/root";
-              spawnEnv.KONSOLX_HOST = "true";
+              spawnEnv = {
+                // Minimal safe base — host rc files will set PATH, HOME, NVM, etc.
+                TERM: "xterm-256color",
+                COLORTERM: "truecolor",
+                LANG: "en_US.UTF-8",
+                KONSOLX_HOST: "true",
+                // Pass through user-defined env vars from the UI (workspace environments)
+                ...env,
+              };
             } else {
+              spawnEnv = { ...process.env, ...env };
               spawnEnv.TERM = "xterm-256color";
               spawnEnv.COLORTERM = "truecolor";
             }
