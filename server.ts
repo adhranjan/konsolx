@@ -231,8 +231,85 @@ async function startServer() {
   const shell = getShell();
   const shellArgs = os.platform() === "win32" ? [] : ["-i"];
 
+  // session ID → shell PID, for busy detection
+  const sessionShells = new Map<string, number>();
+
+  // Get direct child PIDs of a process
+  const getChildPids = (pid: number): Promise<number[]> =>
+    new Promise((resolve) => {
+      const proc = spawn("ps", ["-o", "pid=", "--ppid", String(pid)]);
+      let out = "";
+      proc.stdout.on("data", (d) => out += d.toString());
+      proc.on("close", () => resolve(out.trim().split("\n").filter(Boolean).map(Number)));
+      proc.on("error", () => resolve([]));
+    });
+
+  // Get comm (process name) for a PID
+  const getComm = (pid: number): Promise<string> =>
+    new Promise((resolve) => {
+      const proc = spawn("ps", ["-o", "comm=", "-p", String(pid)]);
+      let out = "";
+      proc.stdout.on("data", (d) => out += d.toString());
+      proc.on("close", () => resolve(out.trim()));
+      proc.on("error", () => resolve(""));
+    });
+
+  const SHELL_NAMES = new Set(["bash", "zsh", "sh", "fish", "ksh", "dash"]);
+
+  // Walk the entire process tree and return the DEEPEST shell found.
+  // e.g. nsenter → sh → python3 → su → bash
+  //       sh is a wrapper (has children), bash is the interactive shell (leaf).
+  const findInteractiveShell = async (rootPid: number, depth = 0): Promise<number | null> => {
+    if (depth > 10) return null;
+    const children = await getChildPids(rootPid);
+    // Recurse into children first — deepest match wins
+    for (const child of children) {
+      const found = await findInteractiveShell(child, depth + 1);
+      if (found) return found;
+    }
+    // If no deeper shell found, check if this node itself is a shell
+    const comm = await getComm(rootPid);
+    if (SHELL_NAMES.has(comm)) return rootPid;
+    return null;
+  };
+
+  // Debug: show full process tree for a session
+  app.get("/api/terminal-debug/:sessionId", async (req, res) => {
+    const rootPid = sessionShells.get(req.params.sessionId);
+    if (!rootPid) return res.json({ error: "session not found", sessions: [...sessionShells.keys()] });
+
+    const buildTree = async (pid: number, depth = 0): Promise<any> => {
+      if (depth > 10) return null;
+      const comm = await getComm(pid);
+      const children = await getChildPids(pid);
+      return { pid, comm, children: await Promise.all(children.map(c => buildTree(c, depth + 1))) };
+    };
+
+    const tree = await buildTree(rootPid);
+    const shellPid = await findInteractiveShell(rootPid);
+    const shellChildren = shellPid ? await getChildPids(shellPid) : [];
+    res.json({ rootPid, shellPid, shellChildren, busy: shellChildren.length > 0, tree });
+  });
+
+  app.get("/api/terminal-busy/:sessionId", async (req, res) => {
+    const rootPid = sessionShells.get(req.params.sessionId);
+    if (!rootPid) return res.json({ busy: false });
+
+    try {
+      const shellPid = await findInteractiveShell(rootPid);
+      if (!shellPid) return res.json({ busy: false });
+
+      // Busy = the interactive shell has child processes
+      const children = await getChildPids(shellPid);
+      res.json({ busy: children.length > 0 });
+    } catch {
+      res.json({ busy: false });
+    }
+  });
+
   wss.on("connection", (ws: WebSocket) => {
     let shellProcess: ChildProcessWithoutNullStreams | null = null;
+    const sessionId = Math.random().toString(36).substr(2, 12);
 
     ws.on("message", (message: string) => {
       const data = JSON.parse(message.toString());
@@ -311,7 +388,10 @@ async function startServer() {
               env: spawnEnv,
               detached: true,
             });
-            console.log(shellProcess);
+
+            // Track shell PID for busy detection
+            if (shellProcess.pid) sessionShells.set(sessionId, shellProcess.pid);
+            ws.send(JSON.stringify({ type: "session", sessionId }));
 
             shellProcess.on("error", (err: any) => {
               if (err.code === 'ENOENT' && shellToTry === 'bash') {
@@ -395,6 +475,7 @@ async function startServer() {
     });
 
     ws.on("close", () => {
+      sessionShells.delete(sessionId);
       if (shellProcess && shellProcess.pid) {
         try {
           // Kill the whole process group (negative PID kills the group)

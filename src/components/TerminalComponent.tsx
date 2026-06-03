@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Terminal } from 'xterm';
 import { FitAddon } from 'xterm-addon-fit';
-import { RefreshCw } from 'lucide-react';
+import { RefreshCw, X } from 'lucide-react';
 import 'xterm/css/xterm.css';
 
 interface TerminalComponentProps {
@@ -10,9 +10,11 @@ interface TerminalComponentProps {
   shell?: string;
   initialCommand?: string;
   onClose: () => void;
+  onSessionReady?: (sessionId: string) => void;
+  onSessionEnd?: () => void;
 }
 
-const TerminalComponent: React.FC<TerminalComponentProps> = ({ cwd, env, shell, initialCommand, onClose }) => {
+const TerminalComponent: React.FC<TerminalComponentProps> = ({ cwd, env, shell, initialCommand, onClose, onSessionReady, onSessionEnd }) => {
   const terminalRef = useRef<HTMLDivElement>(null);
   const xtermRef = useRef<Terminal | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
@@ -66,6 +68,8 @@ const TerminalComponent: React.FC<TerminalComponentProps> = ({ cwd, env, shell, 
       const data = JSON.parse(event.data);
       if (data.type === 'output') {
         term.write(data.data);
+      } else if (data.type === 'session') {
+        onSessionReady?.(data.sessionId);
       }
     };
 
@@ -128,6 +132,7 @@ const TerminalComponent: React.FC<TerminalComponentProps> = ({ cwd, env, shell, 
       window.removeEventListener('resize', handleResize);
       window.removeEventListener('beforeunload', handleBeforeUnload);
       resizeObserver.disconnect();
+      onSessionEnd?.();
       if (wsRef.current === ws) {
         wsRef.current = null;
       }

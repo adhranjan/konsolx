@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   Terminal as TerminalIcon, 
   Plus, 
@@ -69,6 +69,25 @@ export default function App() {
   const [killPort, setKillPort] = useState('');
   const [killPortStatus, setKillPortStatus] = useState<{ message: string; type: 'error' | 'success' } | null>(null);
   const [isKillPortModalOpen, setIsKillPortModalOpen] = useState(false);
+  const tabSessionsRef = useRef<Map<string, string>>(new Map());
+  const [busyToast, setBusyToast] = useState(false);
+
+  const showBusyToast = () => {
+    setBusyToast(true);
+    setTimeout(() => setBusyToast(false), 3000);
+  };
+
+  const checkTabBusy = async (tabId: string): Promise<boolean> => {
+    const sessionId = tabSessionsRef.current.get(tabId);
+    if (!sessionId) return false;
+    try {
+      const res = await fetch(`/api/terminal-busy/${sessionId}`);
+      const { busy } = await res.json();
+      return busy;
+    } catch {
+      return false;
+    }
+  };
 
   const handleKillPort = async () => {
     if (!killPort.trim()) return;
@@ -1037,13 +1056,18 @@ export default function App() {
                       </label>
                       <div className="h-px flex-1 bg-white/5" />
                     </div>
-                    {!isCollapsed && (groupEnvs as Environment[]).map(env => (
-                      <div 
-                        key={env.id} 
-                        onClick={() => {
-                          if (activeTabId) {
-                            setTabs(prev => prev.map(t => t.id === activeTabId ? { ...t, envId: env.id } : t));
+                    {!isCollapsed && (groupEnvs as Environment[]).map(env => {
+                      return (
+                      <div
+                        key={env.id}
+                        onClick={async () => {
+                          if (!activeTabId) return;
+                          const busy = await checkTabBusy(activeTabId);
+                          if (busy) {
+                            showBusyToast();
+                            return;
                           }
+                          setTabs(prev => prev.map(t => t.id === activeTabId ? { ...t, envId: env.id } : t));
                         }}
                         className={`group flex items-center gap-2 px-2 py-1.5 rounded cursor-pointer transition-colors ${currentEnvId === env.id ? 'bg-emerald-500/10 text-emerald-400' : 'hover:bg-white/5'}`}
                       >
@@ -1069,7 +1093,8 @@ export default function App() {
                           <Trash2 size={12} />
                         </button>
                       </div>
-                    ))}
+                    );
+                    })}
                   </div>
                 );
               })}
@@ -1218,6 +1243,8 @@ export default function App() {
                     return envObj;
                   })()} 
                   onClose={() => closeTab(tab.id)}
+                  onSessionReady={(sessionId) => tabSessionsRef.current.set(tab.id, sessionId)}
+                  onSessionEnd={() => tabSessionsRef.current.delete(tab.id)}
                 />
               </div>
             ))
@@ -1721,6 +1748,21 @@ export default function App() {
           </div>
         </div>
       </Modal>
+
+      {/* Busy terminal toast */}
+      <AnimatePresence>
+        {busyToast && (
+          <motion.div
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 10 }}
+            className="fixed bottom-4 right-4 z-[200] flex items-center gap-2 px-3 py-2 bg-amber-500/10 border border-amber-500/20 rounded-lg text-xs text-amber-400 shadow-xl"
+          >
+            <AlertTriangle size={12} />
+            <span>Terminal is busy — stop the running process first</span>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
     </div>
   );
