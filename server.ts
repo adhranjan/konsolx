@@ -271,9 +271,16 @@ async function startServer() {
             });
 
             if (useHostShell) {
-              let msg = "\x1b[1;32m[Connected to Host Shell]\x1b[0m\r\n";
-              msg += "\x1b[0;90m[Tip: On Docker Desktop, host files are typically at /mnt/host or /host_mnt]\x1b[0m\r\n";
-              ws.send(JSON.stringify({ type: "output", data: msg }));
+              ws.send(JSON.stringify({ type: "output", data: "\x1b[1;32m[Connected to Host Shell]\x1b[0m\r\n" }));
+
+              // su - resets cwd to HOME, so send cd after the shell is ready
+              if (cwd && path.isAbsolute(cwd)) {
+                setTimeout(() => {
+                  if (shellProcess && shellProcess.stdin.writable) {
+                    shellProcess.stdin.write(`cd "${cwd}"\n`);
+                  }
+                }, 800);
+              }
             }
 
             shellProcess.stdout.on("data", (data) => {
@@ -336,7 +343,7 @@ async function startServer() {
   } else {
     app.use(express.static("dist"));
   }
-  const PORT = process.env.PORT || 8012;
+  const PORT = process.env.PORT || 8015;
   server.listen(Number(PORT), "0.0.0.0", () => {
     console.log(`Server running on http://localhost:${PORT}`);
   });
