@@ -22,7 +22,7 @@ ENV DATA_DIR=/data
 
 # python3: needed at runtime for pty.spawn() shell trick.
 # util-linux: provides nsenter for USE_HOST_SHELL=true (host PID namespace).
-RUN apt-get update && apt-get install -y --no-install-recommends python3 util-linux \
+RUN apt-get update && apt-get install -y --no-install-recommends python3 util-linux lsof \
   && rm -rf /var/lib/apt/lists/*
 
 COPY package.json package-lock.json* ./
