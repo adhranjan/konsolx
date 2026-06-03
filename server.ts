@@ -31,7 +31,8 @@ db.exec(`
     command TEXT NOT NULL,
     cwd TEXT,
     envId TEXT,
-    icon TEXT
+    icon TEXT,
+    grp TEXT
   );
 `);
 
@@ -48,6 +49,13 @@ const hasGroupName = envTableInfo.some((col: any) => col.name === 'groupName');
 if (!hasGroupName) {
   console.log('Adding groupName column to environments table...');
   db.exec("ALTER TABLE environments ADD COLUMN groupName TEXT");
+}
+
+const qcTableInfo = db.prepare("PRAGMA table_info(quick_commands)").all();
+const hasQcGrp = qcTableInfo.some((col: any) => col.name === 'grp');
+if (!hasQcGrp) {
+  console.log('Adding grp column to quick_commands table...');
+  db.exec("ALTER TABLE quick_commands ADD COLUMN grp TEXT");
 }
 
 // Seed sample workspace (Removed as requested)
@@ -140,22 +148,23 @@ async function startServer() {
   });
 
   app.get("/api/quick-commands", (req, res) => {
-    const rows = db.prepare("SELECT * FROM quick_commands").all();
-    res.json(rows);
+    const rows = db.prepare("SELECT * FROM quick_commands").all() as any[];
+    res.json(rows.map(r => ({ ...r, group: r.grp || undefined })));
   });
 
   app.post("/api/quick-commands", (req, res) => {
     try {
-      const { id, name, command, cwd, envId, icon } = req.body;
+      const { id, name, command, cwd, envId, icon, group } = req.body;
       const cmdId = id || Math.random().toString(36).substr(2, 9);
-      
-      db.prepare("INSERT OR REPLACE INTO quick_commands (id, name, command, cwd, envId, icon) VALUES (?, ?, ?, ?, ?, ?)").run(
-        cmdId, 
-        name || 'Untitled Command', 
+
+      db.prepare("INSERT OR REPLACE INTO quick_commands (id, name, command, cwd, envId, icon, grp) VALUES (?, ?, ?, ?, ?, ?, ?)").run(
+        cmdId,
+        name || 'Untitled Command',
         command || '',
         cwd || null,
         envId || null,
-        icon || null
+        icon || null,
+        group || null
       );
       res.json({ success: true });
     } catch (err) {
@@ -525,7 +534,8 @@ async function startServer() {
   });
 
   // Vite middleware for development
-  if (process.env.NODE_ENV !== "production") {
+  const isDev = process.env.NODE_ENV === "development";
+  if (isDev) {
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: "spa",

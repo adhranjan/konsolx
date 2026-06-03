@@ -36,4 +36,5 @@ export interface QuickCommand {
   command: string;
   cwd?: string;
   icon?: string;
+  group?: string;
 }

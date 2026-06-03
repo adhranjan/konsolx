@@ -63,9 +63,11 @@ export default function App() {
   const [tabLocalVars, setTabLocalVars] = useState<EnvVar[]>([]);
   const [expandedWorkspaces, setExpandedWorkspaces] = useState<Set<string>>(new Set());
   const [collapsedEnvGroups, setCollapsedEnvGroups] = useState<Set<string>>(new Set());
+  const [collapsedQcGroups, setCollapsedQcGroups] = useState<Set<string>>(new Set());
   const [qcName, setQcName] = useState('');
   const [qcCommand, setQcCommand] = useState('');
   const [qcCwd, setQcCwd] = useState('');
+  const [qcGroup, setQcGroup] = useState('');
   const [importStatus, setImportStatus] = useState<{ message: string; type: 'info' | 'error' | 'success' } | null>(null);
   const [killPort, setKillPort] = useState('');
   const [killPortStatus, setKillPortStatus] = useState<{ message: string; type: 'error' | 'success' } | null>(null);
@@ -451,17 +453,28 @@ export default function App() {
     setIsTabSettingsModalOpen(true);
   };
 
+  const toggleQcGroup = (group: string) => {
+    setCollapsedQcGroups(prev => {
+      const next = new Set(prev);
+      if (next.has(group)) next.delete(group);
+      else next.add(group);
+      return next;
+    });
+  };
+
   const openQuickCommandModal = (qc?: QuickCommand) => {
     if (qc) {
       setEditingQuickCommand(qc);
       setQcName(qc.name);
       setQcCommand(qc.command);
       setQcCwd(qc.cwd || '');
+      setQcGroup(qc.group || '');
     } else {
       setEditingQuickCommand(null);
       setQcName('');
       setQcCommand('');
       setQcCwd('');
+      setQcGroup('');
     }
     setIsQuickCommandModalOpen(true);
   };
@@ -472,7 +485,8 @@ export default function App() {
       id: editingQuickCommand?.id || Math.random().toString(36).substr(2, 9),
       name: qcName,
       command: qcCommand,
-      cwd: qcCwd || undefined
+      cwd: qcCwd || undefined,
+      group: qcGroup || undefined
     };
 
     const res = await fetch('/api/quick-commands', {
@@ -904,34 +918,62 @@ export default function App() {
                 </button>
               </div>
             </div>
-            <div className="space-y-1">
-              {quickCommands.map(qc => (
-                <div key={qc.id} className="group flex items-center gap-2 px-2 py-1.5 rounded hover:bg-white/5 transition-colors cursor-pointer">
-                  <div className="flex-1 flex items-center gap-2" onClick={() => runQuickCommandInCurrentTab(qc)}>
-                    <Command size={14} className="text-emerald-400" />
-                    <span className="text-sm truncate font-medium">{qc.name}</span>
+            <div className="space-y-3">
+              {Object.entries(
+                quickCommands.reduce((acc, qc) => {
+                  const g = qc.group || 'Ungrouped';
+                  if (!acc[g]) acc[g] = [];
+                  acc[g].push(qc);
+                  return acc;
+                }, {} as Record<string, QuickCommand[]>)
+              ).map(([group, cmds]) => {
+                const isCollapsed = collapsedQcGroups.has(group);
+                const isUngrouped = group === 'Ungrouped';
+                return (
+                  <div key={group} className="space-y-1">
+                    {!isUngrouped && (
+                      <div className="px-2 text-[9px] font-bold text-white/20 uppercase tracking-widest flex items-center gap-2">
+                        <div className="h-px flex-1 bg-white/5" />
+                        <div
+                          onClick={() => toggleQcGroup(group)}
+                          className="flex items-center gap-1 cursor-pointer hover:text-white/40 transition-colors"
+                        >
+                          {isCollapsed ? <ChevronRight size={8} /> : <ChevronDown size={8} />}
+                          {group}
+                        </div>
+                        <div className="h-px flex-1 bg-white/5" />
+                      </div>
+                    )}
+                    {!isCollapsed && cmds.map(qc => (
+                      <div key={qc.id} className="group flex items-center gap-2 px-2 py-1.5 rounded hover:bg-white/5 transition-colors cursor-pointer">
+                        <div className="flex-1 flex items-center gap-2" onClick={() => runQuickCommandInCurrentTab(qc)}>
+                          <Command size={14} className="text-emerald-400" />
+                          <span className="text-sm truncate font-medium">{qc.name}</span>
+                        </div>
+                        <button
+                          onClick={(e) => { e.stopPropagation(); runQuickCommand(qc); }}
+                          className="opacity-0 group-hover:opacity-100 p-1 hover:text-blue-400 transition-opacity"
+                          title="Run in new tab"
+                        >
+                          <ExternalLink size={12} />
+                        </button>
+                        <button
+                          onClick={(e) => { e.stopPropagation(); openQuickCommandModal(qc); }}
+                          className="opacity-0 group-hover:opacity-100 p-1 hover:text-emerald-400 transition-opacity"
+                        >
+                          <Edit3 size={12} />
+                        </button>
+                        <button
+                          onClick={(e) => { e.stopPropagation(); deleteQuickCommand(qc.id); }}
+                          className="opacity-0 group-hover:opacity-100 p-1 hover:text-red-400 transition-opacity"
+                        >
+                          <Trash2 size={12} />
+                        </button>
+                      </div>
+                    ))}
                   </div>
-                  <button
-                    onClick={(e) => { e.stopPropagation(); runQuickCommand(qc); }}
-                    className="opacity-0 group-hover:opacity-100 p-1 hover:text-blue-400 transition-opacity"
-                    title="Run in new tab"
-                  >
-                    <ExternalLink size={12} />
-                  </button>
-                  <button
-                    onClick={(e) => { e.stopPropagation(); openQuickCommandModal(qc); }}
-                    className="opacity-0 group-hover:opacity-100 p-1 hover:text-emerald-400 transition-opacity"
-                  >
-                    <Edit3 size={12} />
-                  </button>
-                  <button 
-                    onClick={(e) => { e.stopPropagation(); deleteQuickCommand(qc.id); }} 
-                    className="opacity-0 group-hover:opacity-100 p-1 hover:text-red-400 transition-opacity"
-                  >
-                    <Trash2 size={12} />
-                  </button>
-                </div>
-              ))}
+                );
+              })}
               {quickCommands.length === 0 && (
                 <div className="px-2 py-4 text-center border border-dashed border-white/5 rounded">
                   <p className="text-[10px] text-white/20 italic">No quick commands yet</p>
@@ -1694,13 +1736,29 @@ export default function App() {
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="block text-xs font-bold text-white/40 uppercase mb-1">Working Directory (Optional)</label>
-              <input 
-                type="text" 
+              <input
+                type="text"
                 value={qcCwd}
                 onChange={e => setQcCwd(e.target.value)}
                 placeholder="./proxy-service"
                 className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-emerald-500/50 transition-colors"
               />
+            </div>
+            <div>
+              <label className="block text-xs font-bold text-white/40 uppercase mb-1">Group (Optional)</label>
+              <input
+                type="text"
+                list="qc-groups"
+                value={qcGroup}
+                onChange={e => setQcGroup(e.target.value)}
+                placeholder="e.g. Docker, Dev"
+                className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-emerald-500/50 transition-colors"
+              />
+              <datalist id="qc-groups">
+                {Array.from(new Set(quickCommands.map(q => q.group).filter(Boolean))).map(g => (
+                  <option key={g} value={g} />
+                ))}
+              </datalist>
             </div>
           </div>
           <div className="flex justify-end gap-2 pt-2">
