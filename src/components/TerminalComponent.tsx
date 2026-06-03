@@ -9,15 +9,17 @@ interface TerminalComponentProps {
   env: Record<string, string>;
   shell?: string;
   initialCommand?: string;
+  isActive?: boolean;
   onClose: () => void;
   onSessionReady?: (sessionId: string) => void;
   onSessionEnd?: () => void;
   onInputReady?: (sendInput: (cmd: string) => void) => void;
 }
 
-const TerminalComponent: React.FC<TerminalComponentProps> = ({ cwd, env, shell, initialCommand, onClose, onSessionReady, onSessionEnd, onInputReady }) => {
+const TerminalComponent: React.FC<TerminalComponentProps> = ({ cwd, env, shell, initialCommand, isActive, onClose, onSessionReady, onSessionEnd, onInputReady }) => {
   const terminalRef = useRef<HTMLDivElement>(null);
   const xtermRef = useRef<Terminal | null>(null);
+  const fitAddonRef = useRef<FitAddon | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const [isDisconnected, setIsDisconnected] = useState(false);
   const [reconnectKey, setReconnectKey] = useState(0);
@@ -39,6 +41,7 @@ const TerminalComponent: React.FC<TerminalComponentProps> = ({ cwd, env, shell, 
       },
     });
     const fitAddon = new FitAddon();
+    fitAddonRef.current = fitAddon;
     term.loadAddon(fitAddon);
     term.open(terminalRef.current);
     if (terminalRef.current.offsetWidth > 0) {
@@ -176,6 +179,26 @@ const TerminalComponent: React.FC<TerminalComponentProps> = ({ cwd, env, shell, 
       term.dispose();
     };
   }, [cwd, JSON.stringify(env), shell, reconnectKey]);
+
+  // When this tab becomes active, wait for layout to settle then fit
+  useEffect(() => {
+    if (!isActive) return;
+    const raf = requestAnimationFrame(() => {
+      if (terminalRef.current && terminalRef.current.offsetWidth > 0 && fitAddonRef.current) {
+        try {
+          fitAddonRef.current.fit();
+          if (wsRef.current?.readyState === WebSocket.OPEN && xtermRef.current) {
+            wsRef.current.send(JSON.stringify({
+              type: 'resize',
+              cols: xtermRef.current.cols,
+              rows: xtermRef.current.rows
+            }));
+          }
+        } catch (e) {}
+      }
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [isActive]);
 
   const handleRestart = () => {
     setReconnectKey(prev => prev + 1);

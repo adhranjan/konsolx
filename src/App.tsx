@@ -1347,10 +1347,11 @@ export default function App() {
                 key={tab.id} 
                 className={`absolute inset-0 ${activeTabId === tab.id ? 'block' : 'hidden'}`}
               >
-                <TerminalComponent 
-                  cwd={tab.cwd} 
+                <TerminalComponent
+                  cwd={tab.cwd}
                   shell={tab.shell}
                   initialCommand={tab.initialCommand}
+                  isActive={activeTabId === tab.id}
                   env={(() => {
                     const envObj: Record<string, string> = {};
                     
