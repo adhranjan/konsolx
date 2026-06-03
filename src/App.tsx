@@ -114,7 +114,7 @@ export default function App() {
       setKillPortStatus({ message: 'Request failed', type: 'error' });
     }
   };
-  const [serverConfig, setServerConfig] = useState<{ useHostShell: boolean; platform: string } | null>(null);
+  const [serverConfig, setServerConfig] = useState<{ useHostShell: boolean; platform: string; isDev: boolean } | null>(null);
 
   // Fetch initial data
   useEffect(() => {
@@ -128,6 +128,30 @@ export default function App() {
     });
     fetch('/api/config').then(res => res.json()).then(setServerConfig);
   }, []);
+
+  // Block DevTools in release mode
+  useEffect(() => {
+    if (serverConfig?.isDev) return; // allow in dev
+    if (serverConfig === null) return; // not loaded yet
+
+    const block = (e: KeyboardEvent) => {
+      // F12
+      if (e.key === 'F12') { e.preventDefault(); return; }
+      // Ctrl+Shift+I / Ctrl+Shift+J / Ctrl+Shift+C
+      if (e.ctrlKey && e.shiftKey && ['I','i','J','j','C','c'].includes(e.key)) { e.preventDefault(); return; }
+      // Ctrl+U (view source)
+      if (e.ctrlKey && (e.key === 'u' || e.key === 'U')) { e.preventDefault(); return; }
+    };
+
+    const blockContext = (e: MouseEvent) => e.preventDefault();
+
+    document.addEventListener('keydown', block);
+    document.addEventListener('contextmenu', blockContext);
+    return () => {
+      document.removeEventListener('keydown', block);
+      document.removeEventListener('contextmenu', blockContext);
+    };
+  }, [serverConfig]);
 
   const getGroupColor = (name: string) => {
     const colors = [

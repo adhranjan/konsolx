@@ -26,6 +26,7 @@ services:
       DATA_DIR: /data
       USE_HOST_SHELL: "true"
       HOST_USER: "${HOST_USER}"
+      KONSOLX_ENV: "${KONSOLX_ENV:-release}"
     volumes:
       - konsolx-data:/data
     privileged: true

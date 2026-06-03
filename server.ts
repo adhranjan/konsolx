@@ -88,9 +88,10 @@ async function startServer() {
   });
 
   app.get("/api/config", (req, res) => {
-    res.json({ 
+    res.json({
       useHostShell: process.env.USE_HOST_SHELL === "true",
-      platform: os.platform()
+      platform: os.platform(),
+      isDev: process.env.KONSOLX_ENV === "dev"
     });
   });
 
