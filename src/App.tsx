@@ -120,7 +120,12 @@ export default function App() {
   useEffect(() => {
     fetch('/api/workspaces').then(res => res.json()).then(setWorkspaces);
     fetch('/api/environments').then(res => res.json()).then(setEnvironments);
-    fetch('/api/quick-commands').then(res => res.json()).then(setQuickCommands);
+    fetch('/api/quick-commands').then(res => res.json()).then((data: QuickCommand[]) => {
+      setQuickCommands(data);
+      // Collapse all named groups by default
+      const groups = new Set(data.map(q => q.group).filter(Boolean) as string[]);
+      setCollapsedQcGroups(groups);
+    });
     fetch('/api/config').then(res => res.json()).then(setServerConfig);
   }, []);
 
@@ -926,7 +931,11 @@ export default function App() {
                   acc[g].push(qc);
                   return acc;
                 }, {} as Record<string, QuickCommand[]>)
-              ).map(([group, cmds]) => {
+              ).sort(([a], [b]) => {
+                if (a === 'Ungrouped') return -1;
+                if (b === 'Ungrouped') return 1;
+                return a.localeCompare(b);
+              }).map(([group, cmds]) => {
                 const isCollapsed = collapsedQcGroups.has(group);
                 const isUngrouped = group === 'Ungrouped';
                 return (
