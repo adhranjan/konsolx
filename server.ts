@@ -87,11 +87,33 @@ async function startServer() {
     res.json({ status: "ok" });
   });
 
+  // Update check — compare baked-in GIT_SHA to latest commit on GitHub
+  let updateAvailable = false;
+  const currentSha = process.env.GIT_SHA || 'unknown';
+
+  const checkForUpdate = async () => {
+    if (currentSha === 'unknown') return; // dev/local build, skip
+    try {
+      const res = await fetch('https://api.github.com/repos/adhranjan/konsolx/commits/main', {
+        headers: { 'User-Agent': 'konsolx-update-check' }
+      });
+      if (!res.ok) return;
+      const data = await res.json() as { sha: string };
+      updateAvailable = data.sha !== currentSha;
+      if (updateAvailable) console.log(`[konsolx] Update available: ${currentSha.slice(0,7)} → ${data.sha.slice(0,7)}`);
+    } catch (_) {}
+  };
+
+  checkForUpdate();
+  setInterval(checkForUpdate, 30 * 60 * 1000); // re-check every 30 min
+
   app.get("/api/config", (req, res) => {
     res.json({
       useHostShell: process.env.USE_HOST_SHELL === "true",
       platform: os.platform(),
-      isDev: process.env.KONSOLX_ENV === "dev"
+      isDev: process.env.KONSOLX_ENV === "dev",
+      updateAvailable,
+      currentSha: currentSha.slice(0, 7)
     });
   });
 

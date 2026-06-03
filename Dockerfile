@@ -18,6 +18,8 @@ FROM node:22-bookworm-slim AS runner
 WORKDIR /app
 ENV NODE_ENV=production
 ENV DATA_DIR=/data
+ARG GIT_SHA=unknown
+ENV GIT_SHA=$GIT_SHA
 
 # python3: needed at runtime for pty.spawn() shell trick.
 # util-linux: provides nsenter for USE_HOST_SHELL=true (host PID namespace).

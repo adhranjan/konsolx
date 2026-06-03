@@ -114,7 +114,8 @@ export default function App() {
       setKillPortStatus({ message: 'Request failed', type: 'error' });
     }
   };
-  const [serverConfig, setServerConfig] = useState<{ useHostShell: boolean; platform: string; isDev: boolean } | null>(null);
+  const [serverConfig, setServerConfig] = useState<{ useHostShell: boolean; platform: string; isDev: boolean; updateAvailable: boolean; currentSha: string } | null>(null);
+  const [updateDismissed, setUpdateDismissed] = useState(false);
 
   // Fetch initial data
   useEffect(() => {
@@ -862,6 +863,29 @@ export default function App() {
           </button>
         </div>
       </div>
+
+      {/* Update banner */}
+      <AnimatePresence>
+        {serverConfig?.updateAvailable && !updateDismissed && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            className="bg-blue-500/10 border-b border-blue-500/20 px-4 py-2 flex items-center justify-between text-xs text-blue-300 shrink-0"
+          >
+            <div className="flex items-center gap-2">
+              <RefreshCw size={12} />
+              <span>A new version of Konsolx is available.</span>
+              <code className="bg-blue-500/10 px-2 py-0.5 rounded font-mono text-[10px]">
+                docker compose pull && HOST_USER=$(whoami) docker compose up -d
+              </code>
+            </div>
+            <button onClick={() => setUpdateDismissed(true)} className="p-1 hover:text-white transition-colors">
+              <X size={12} />
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       <div className="flex flex-1 overflow-hidden">
         {/* Sidebar */}
