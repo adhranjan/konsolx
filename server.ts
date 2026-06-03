@@ -303,27 +303,10 @@ async function startServer() {
 
         startShell(selectedShell);
       } else if (data.type === "input" && shellProcess) {
-        if (data.data === "\x03") { // Ctrl+C
-          try {
-            process.kill(-shellProcess.pid, 'SIGINT');
-          } catch (e) {
-            shellProcess.stdin.write(data.data);
-          }
-        } else if (data.data === "\x1a") { // Ctrl+Z
-          try {
-            process.kill(-shellProcess.pid, 'SIGTSTP');
-          } catch (e) {
-            shellProcess.stdin.write(data.data);
-          }
-        } else if (data.data === "\x1c") { // Ctrl+\
-          try {
-            process.kill(-shellProcess.pid, 'SIGQUIT');
-          } catch (e) {
-            shellProcess.stdin.write(data.data);
-          }
-        } else {
-          shellProcess.stdin.write(data.data);
-        }
+        // Write all input (including Ctrl+C \x03, Ctrl+Z \x1a, Ctrl+\ \x1c) directly
+        // to the PTY stdin. The PTY terminal driver converts control characters into
+        // the correct signals for the foreground process only — the shell stays alive.
+        shellProcess.stdin.write(data.data);
       } else if (data.type === "resize" && shellProcess) {
         // We can't easily resize a non-pty process, but we can update env for future processes
         // or some shells might pick up SIGWINCH if we could send it (but we can't easily without pty)
