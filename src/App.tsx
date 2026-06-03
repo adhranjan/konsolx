@@ -21,7 +21,8 @@ import {
   Unlock,
   Search,
   Command,
-  Monitor
+  Monitor,
+  Copy
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import TerminalComponent from './components/TerminalComponent';
@@ -364,6 +365,17 @@ export default function App() {
       setWsDirs([{ name: 'Root', path: '.' }]);
     }
     setIsWsModalOpen(true);
+  };
+
+  const cloneEnvModal = (env: Environment) => {
+    const vars = Array.isArray(env.variables)
+      ? env.variables
+      : Object.entries(env.variables).map(([key, value]) => ({ key, value: String(value), isPrivate: false }));
+    setEditingEnv(null);
+    setEnvName(`${env.name} - copy`);
+    setEnvGroupName(env.groupName || '');
+    setEnvVars(vars.map(v => ({ ...v, value: '' })));
+    setIsEnvModalOpen(true);
   };
 
   const openEnvModal = (env?: Environment) => {
@@ -1012,6 +1024,9 @@ export default function App() {
                             }
                           </div>
                         </div>
+                        <button onClick={(e) => { e.stopPropagation(); cloneEnvModal(env); }} className="opacity-0 group-hover:opacity-100 p-1 hover:text-blue-400 transition-opacity" title="Clone Environment">
+                          <Copy size={12} />
+                        </button>
                         <button onClick={(e) => { e.stopPropagation(); openEnvModal(env); }} className="opacity-0 group-hover:opacity-100 p-1 hover:text-emerald-400 transition-opacity" title="Edit Variables">
                           <Edit3 size={12} />
                         </button>
