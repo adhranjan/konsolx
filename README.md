@@ -6,68 +6,31 @@ Every terminal you open runs **directly on your host machine** — same filesyst
 
 ---
 
-## Start (Docker — recommended)
+## Start
 
-### Requirements
-- Docker + Docker Compose
-- Linux host with Docker Engine (Fedora, Ubuntu, Arch, etc.)
-
-> **Docker Desktop (Mac/Windows):** `nsenter` will land in the LinuxKit VM, not your actual Mac/Windows host. Bind-mount your project directories instead — see [Standard mode](#standard-mode-isolated-terminals) below.
-
-### One command to start
+**Requirements:** Docker + Docker Compose on a Linux machine.
 
 ```bash
-HOST_USER=$(whoami) docker compose -f docker-compose.host-shell.yml up -d
+HOST_USER=$(whoami) docker compose up -d
 ```
 
 Open **http://localhost:8012** in your browser.
 
-That's it. Every terminal you open in the UI is a real shell on your machine — your files, your tools, your environment.
+That's it. No install, no build. Docker pulls the image automatically.
 
 ### Stop
 
 ```bash
-docker compose -f docker-compose.host-shell.yml down
+docker compose down
 ```
 
 ---
 
-## How host-shell works
+## How it works
 
-The container runs with `privileged: true` and `pid: host`. When you open a terminal, the server calls `nsenter -t 1 -m -u -i -n -p` to enter the host's Linux namespaces (filesystem, network, PID, etc.), then runs `su - <your-user>` inside a PTY. The result is a shell that is indistinguishable from opening a terminal on the host directly — correct user, correct HOME, nvm/rbenv/pyenv all work.
+The container runs with `privileged: true` and `pid: host`. When you open a terminal, the server uses `nsenter -t 1 -m -u -i -n -p` to enter the host's Linux namespaces, then runs `su - <your-user>` inside a PTY. The result is a real shell on your host — correct user, correct HOME, nvm/rbenv/pyenv all work.
 
----
-
-## Standard mode (isolated terminals)
-
-Terminals run inside the container. Useful if you're on Docker Desktop or want isolation.
-
-```bash
-docker compose up -d
-```
-
-To access your host files from inside terminals, bind-mount your directories in `docker-compose.yml`:
-
-```yaml
-volumes:
-  - konsolx-data:/data
-  - /home/youruser/projects:/home/youruser/projects
-```
-
----
-
-## Hack on the code (no Docker)
-
-**Prerequisites:** Node.js 18+
-
-```bash
-git clone https://github.com/adhranjan/konsolx.git
-cd konsolx
-npm install
-npm run dev
-```
-
-Open **http://localhost:8012**.
+> **Docker Desktop (Mac/Windows):** `nsenter` targets the LinuxKit VM, not your actual host. Host-shell will not behave as expected on Docker Desktop.
 
 ---
 
@@ -87,13 +50,25 @@ Open **http://localhost:8012**.
 
 | Env var | Default | Description |
 |---|---|---|
-| `HOST_USER` | _(none)_ | Your Linux username. Required for host-shell mode so your shell init files load correctly. |
-| `USE_HOST_SHELL` | `false` | Set to `true` to enable nsenter host-shell mode (set automatically by `docker-compose.host-shell.yml`). |
+| `HOST_USER` | _(required)_ | Your Linux username. Terminals start as this user so your shell init files (nvm, etc.) load correctly. |
 | `PORT` | `8012` | Port the server listens on. |
-| `DATA_DIR` | `.` | Directory where `terminal.db` (workspaces, envs, commands) is stored. |
+| `DATA_DIR` | `/data` | Where `terminal.db` (workspaces, envs, commands) is stored. |
+
+---
+
+## Hack on the code
+
+```bash
+git clone https://github.com/adhranjan/konsolx.git
+cd konsolx
+npm install
+npm run dev
+```
+
+Open **http://localhost:8012**.
 
 ---
 
 ## Security note
 
-Host-shell mode runs with `--privileged` and `--pid=host`. This gives the container full access to the host. Only run this on machines you own and trust. Do not expose port 8012 to the public internet.
+Konsolx runs with `--privileged` and `--pid=host`, giving the container full access to the host. Only run this on machines you own and trust. Do not expose port 8012 to the public internet.
