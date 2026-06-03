@@ -1,3 +1,19 @@
+# Konsolx — browser-based terminal workspace manager
+#
+# QUICK START:
+#   HOST_USER=$(whoami) docker compose up -d
+#   Open http://localhost:8012
+#
+# CUSTOM PORT:
+#   PORT=9000 HOST_USER=$(whoami) docker compose up -d
+#   Open http://localhost:9000
+#
+# STOP:
+#   docker compose down
+#
+# HOST_USER is required — it sets which user's shell and environment
+# (nvm, PATH, etc.) the terminals run as on your host machine.
+
 services:
   konsolx:
     image: ghcr.io/adhranjan/konsolx:latest
