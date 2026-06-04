@@ -1,0 +1,62 @@
+import path from "path";
+import Database from "better-sqlite3";
+
+const dataDir = process.env.DATA_DIR || ".";
+export const db = new Database(path.join(dataDir, "terminal.db"));
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS workspaces (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    basePath TEXT,
+    directories TEXT NOT NULL
+  );
+  CREATE TABLE IF NOT EXISTS environments (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    groupName TEXT,
+    variables TEXT NOT NULL
+  );
+  CREATE TABLE IF NOT EXISTS quick_commands (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    command TEXT NOT NULL,
+    cwd TEXT,
+    envId TEXT,
+    grp TEXT
+  );
+`);
+
+// Migrations — add columns that didn't exist in older schemas
+const workspaceCols = db.prepare("PRAGMA table_info(workspaces)").all() as any[];
+if (!workspaceCols.some(c => c.name === "basePath")) {
+  db.exec("ALTER TABLE workspaces ADD COLUMN basePath TEXT");
+}
+
+const envCols = db.prepare("PRAGMA table_info(environments)").all() as any[];
+if (!envCols.some(c => c.name === "groupName")) {
+  db.exec("ALTER TABLE environments ADD COLUMN groupName TEXT");
+}
+
+const qcCols = db.prepare("PRAGMA table_info(quick_commands)").all() as any[];
+if (!qcCols.some(c => c.name === "grp")) {
+  db.exec("ALTER TABLE quick_commands ADD COLUMN grp TEXT");
+}
+
+// Remove icon column data by just ignoring it — no DROP COLUMN in old SQLite
+// Seed built-in Konsolx Update command
+const hostUser = process.env.HOST_USER;
+const updateCwd = hostUser ? `/home/${hostUser}` : null;
+const existing = db.prepare("SELECT id FROM quick_commands WHERE id = 'konsolx-update'").get();
+if (!existing) {
+  db.prepare("INSERT INTO quick_commands (id, name, command, cwd, grp) VALUES (?, ?, ?, ?, ?)").run(
+    "konsolx-update",
+    "Konsolx Update",
+    "docker compose pull && HOST_USER=$(whoami) docker compose up -d",
+    updateCwd,
+    "Konsolx"
+  );
+}
+
+// Remove stale sample workspace
+db.prepare("DELETE FROM workspaces WHERE id = 'sample-work'").run();
