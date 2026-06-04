@@ -16,6 +16,15 @@ router.post("/workspaces", (req, res) => {
   }
 });
 
+router.put("/workspaces/:id", (req, res) => {
+  try {
+    saveWorkspace({ ...req.body, id: req.params.id });
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+  }
+});
+
 router.delete("/workspaces/:id", (req, res) => {
   deleteWorkspace(req.params.id);
   res.json({ success: true });

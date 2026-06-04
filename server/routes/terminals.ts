@@ -8,6 +8,8 @@ import {
   killTerminal,
   attachClient,
   detachClient,
+  updateTerminalMeta,
+  applyEnvToTerminal,
 } from "../services/terminals.js";
 import { sessions } from "../sessions.js";
 
@@ -32,10 +34,27 @@ router.post("/terminals", (req, res) => {
   }
 });
 
+router.put("/terminals/:id", (req, res) => {
+  const updated = updateTerminalMeta(req.params.id, req.body);
+  if (!updated) return res.status(404).json({ error: "Session not found" });
+  res.json({ success: true });
+});
+
+router.put("/terminals/:id/env/:envId", async (req, res) => {
+  try {
+    await applyEnvToTerminal(req.params.id, req.params.envId);
+    res.json({ success: true });
+  } catch (err: any) {
+    const status =
+      err.message === "Session not found" || err.message === "Environment not found" ? 404 :
+      err.message === "Terminal is busy" ? 409 :
+      500;
+    res.status(status).json({ error: err.message });
+  }
+});
+
 router.delete("/terminals/:id", async (req, res) => {
-  const exists = sessions.has(req.params.id);
-  if (!exists) return res.status(404).json({ error: "Session not found" });
-  await killTerminal(req.params.id);
+  await killTerminal(req.params.id); // no-op if already gone
   res.json({ success: true });
 });
 

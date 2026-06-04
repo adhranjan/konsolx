@@ -16,6 +16,15 @@ router.post("/environments", (req, res) => {
   }
 });
 
+router.put("/environments/:id", (req, res) => {
+  try {
+    saveEnvironment({ ...req.body, id: req.params.id });
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+  }
+});
+
 router.delete("/environments/:id", (req, res) => {
   deleteEnvironment(req.params.id);
   res.json({ success: true });

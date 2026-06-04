@@ -31,6 +31,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import TerminalComponent from './components/TerminalComponent';
 import Modal from './components/Modal';
 import { Workspace, Environment, Tab, EnvVar, QuickCommand } from './types';
+import { configApi, workspacesApi, environmentsApi, quickCommandsApi, terminalsApi, killPortApi, bulkApi } from './api';
 
 export default function App() {
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
@@ -50,6 +51,7 @@ export default function App() {
   const [editingWs, setEditingWs] = useState<Workspace | null>(null);
   const [isTabSettingsModalOpen, setIsTabSettingsModalOpen] = useState(false);
   const [editingTabSettings, setEditingTabSettings] = useState<Tab | null>(null);
+  const [editingTabTitleId, setEditingTabTitleId] = useState<string | null>(null);
   const [isQuickCommandModalOpen, setIsQuickCommandModalOpen] = useState(false);
   const [editingQuickCommand, setEditingQuickCommand] = useState<QuickCommand | null>(null);
 
@@ -75,6 +77,19 @@ export default function App() {
   const tabSessionsRef = useRef<Map<string, string>>(new Map());
   const tabInputsRef = useRef<Map<string, (cmd: string) => void>>(new Map());
   const [busyToast, setBusyToast] = useState(false);
+  const [apiErrorToast, setApiErrorToast] = useState<string | null>(null);
+  const apiErrorTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const { message } = (e as CustomEvent<{ message: string; status: number; path: string }>).detail;
+      if (apiErrorTimer.current) clearTimeout(apiErrorTimer.current);
+      setApiErrorToast(message);
+      apiErrorTimer.current = setTimeout(() => setApiErrorToast(null), 4000);
+    };
+    window.addEventListener("api:error", handler);
+    return () => window.removeEventListener("api:error", handler);
+  }, []);
 
   const showBusyToast = () => {
     setBusyToast(true);
@@ -85,9 +100,8 @@ export default function App() {
     const sessionId = tabSessionsRef.current.get(tabId);
     if (!sessionId) return false;
     try {
-      const res = await fetch(`/api/terminal-busy/${sessionId}`);
-      const { busy } = await res.json();
-      return busy;
+      const terminal = await terminalsApi.get(sessionId);
+      return terminal.busy;
     } catch {
       return false;
     }
@@ -97,37 +111,43 @@ export default function App() {
     if (!killPort.trim()) return;
     setKillPortStatus(null);
     try {
-      const res = await fetch('/api/kill-port', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ port: killPort.trim() })
-      });
-      const data = await res.json();
-      if (res.ok) {
-        setKillPortStatus({ message: data.message, type: 'success' });
-        setKillPort('');
-        setTimeout(() => { setIsKillPortModalOpen(false); setKillPortStatus(null); }, 1500);
-      } else {
-        setKillPortStatus({ message: data.error, type: 'error' });
-      }
-    } catch {
-      setKillPortStatus({ message: 'Request failed', type: 'error' });
+      const data = await killPortApi.kill(Number(killPort.trim()));
+      setKillPortStatus({ message: data.message, type: 'success' });
+      setKillPort('');
+      setTimeout(() => { setIsKillPortModalOpen(false); setKillPortStatus(null); }, 1500);
+    } catch (err) {
+      setKillPortStatus({ message: err instanceof Error ? err.message : 'Request failed', type: 'error' });
     }
   };
   const [serverConfig, setServerConfig] = useState<{ useHostShell: boolean; useSshShell: boolean; platform: string; hostOs: string | null; isDev: boolean; updateAvailable: string | null } | null>(null);
   const [updateDismissed, setUpdateDismissed] = useState(false);
 
-  // Fetch initial data
+  // Fetch initial data + restore tabs from previous session
   useEffect(() => {
-    fetch('/api/workspaces').then(res => res.json()).then(setWorkspaces);
-    fetch('/api/environments').then(res => res.json()).then(setEnvironments);
-    fetch('/api/quick-commands').then(res => res.json()).then((data: QuickCommand[]) => {
+    workspacesApi.list().then(setWorkspaces);
+    environmentsApi.list().then(setEnvironments);
+    quickCommandsApi.list().then((data) => {
       setQuickCommands(data);
-      // Collapse all named groups by default
       const groups = new Set(data.map(q => q.group).filter(Boolean) as string[]);
       setCollapsedQcGroups(groups);
     });
-    fetch('/api/config').then(res => res.json()).then(setServerConfig);
+    configApi.get().then(setServerConfig);
+
+    // Restore tabs from server sessions
+    terminalsApi.list().then(sessions => {
+      if (sessions.length === 0) return;
+      const restored: Tab[] = sessions.map(s => ({
+        id:         crypto.randomUUID(),
+        sessionId:  s.sessionId,
+        title:      s.title      ?? s.cwd.split('/').pop() ?? 'Terminal',
+        cwd:        s.cwd,
+        groupName:  s.groupName,
+        groupColor: s.groupColor,
+        envId:      s.envId,
+      }));
+      setTabs(restored);
+      setActiveTabId(restored[0].id);
+    }).catch(() => {});
   }, []);
 
   // Block DevTools in release mode
@@ -178,14 +198,14 @@ export default function App() {
   };
 
   const addTab = (cwd: string = '.', title: string = 'Terminal', groupName?: string, initialCommand?: string) => {
-    const id = Math.random().toString(36).substr(2, 9);
+    const id = crypto.randomUUID();
     const effectiveGroupName = groupName || (activeEnv ? activeEnv.name : undefined);
     const newTab: Tab = { 
       id, 
       title, 
       cwd, 
       shell: defaultShell || undefined,
-      envId: undefined, // Follow global selection by default
+      envId: undefined,
       groupName: effectiveGroupName,
       groupColor: effectiveGroupName ? getGroupColor(effectiveGroupName) : undefined,
       initialCommand
@@ -195,6 +215,10 @@ export default function App() {
   };
 
   const closeTab = (id: string) => {
+    // Kill the server session explicitly — don't rely solely on component unmount
+    const sessionId = tabSessionsRef.current.get(id);
+    if (sessionId) terminalsApi.delete(sessionId).catch(() => {});
+
     setTabs(prev => {
       const remainingTabs = prev.filter(t => t.id !== id);
       if (activeTabId === id) {
@@ -270,7 +294,7 @@ export default function App() {
     
     for (let i = 0; i < ws.directories.length; i++) {
       const dir = ws.directories[i];
-      const id = `tab-${Math.random().toString(36).substr(2, 9)}-${Date.now()}-${i}`;
+      const id = crypto.randomUUID();
       let resolvedPath = dir.path;
       if (!dir.path.startsWith('/') && ws.basePath) {
         resolvedPath = `${ws.basePath.replace(/\/$/, '')}/${dir.path.replace(/^\//, '')}`;
@@ -281,7 +305,7 @@ export default function App() {
         title: dir.name || dir.path.split('/').pop() || dir.path, 
         cwd: resolvedPath, 
         shell: defaultShell || undefined,
-        envId: undefined, // Follow global selection by default
+        envId: undefined,
         groupName: ws.name,
         groupColor
       });
@@ -296,35 +320,30 @@ export default function App() {
     }
   };
 
-  const handleSaveWorkspace = (e: React.FormEvent) => {
+  const handleSaveWorkspace = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!wsName) return;
 
     const validDirs = wsDirs.filter(d => d.path.trim() !== '');
-
-    const newWs: Workspace = {
-      id: editingWs?.id || Math.random().toString(36).substr(2, 9),
-      name: wsName,
-      basePath: wsBasePath,
-      directories: validDirs
+    const ws: Workspace = {
+      id:          editingWs?.id || crypto.randomUUID(),
+      name:        wsName,
+      basePath:    wsBasePath,
+      directories: validDirs,
     };
 
-    fetch('/api/workspaces', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(newWs)
-    }).then(() => {
-      if (editingWs) {
-        setWorkspaces(prev => prev.map(w => w.id === editingWs.id ? newWs : w));
-      } else {
-        setWorkspaces(prev => [...prev, newWs]);
-      }
-      setIsWsModalOpen(false);
-      setEditingWs(null);
-      setWsName('');
-      setWsBasePath('');
-      setWsDirs([]);
-    });
+    if (editingWs) {
+      await workspacesApi.update(ws);
+      setWorkspaces(prev => prev.map(w => w.id === ws.id ? ws : w));
+    } else {
+      await workspacesApi.create(ws);
+      setWorkspaces(prev => [...prev, ws]);
+    }
+    setIsWsModalOpen(false);
+    setEditingWs(null);
+    setWsName('');
+    setWsBasePath('');
+    setWsDirs([]);
   };
 
   const addWsDirRow = () => {
@@ -339,41 +358,33 @@ export default function App() {
     setWsDirs(prev => prev.filter((_, i) => i !== index));
   };
 
-  const handleSaveEnvironment = (e: React.FormEvent) => {
+  const handleSaveEnvironment = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!envName) return;
 
-    // Filter out empty keys
-    const validVars = envVars.filter(v => v.key.trim() !== '');
-
-    const newEnv: Environment = {
-      id: editingEnv?.id || Math.random().toString(36).substr(2, 9),
-      name: envName,
+    const env: Environment = {
+      id:        editingEnv?.id || crypto.randomUUID(),
+      name:      envName,
       groupName: envGroupName || undefined,
-      variables: validVars
+      variables: envVars.filter(v => v.key.trim() !== ''),
     };
 
-    fetch('/api/environments', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(newEnv)
-    }).then(res => {
-      if (!res.ok) throw new Error('Failed to save environment');
-      return res.json();
-    }).then(() => {
+    try {
       if (editingEnv) {
-        setEnvironments(prev => prev.map(e => e.id === editingEnv.id ? newEnv : e));
+        await environmentsApi.update(env);
+        setEnvironments(prev => prev.map(e => e.id === env.id ? env : e));
       } else {
-        setEnvironments(prev => [...prev, newEnv]);
+        await environmentsApi.create(env);
+        setEnvironments(prev => [...prev, env]);
       }
       setIsEnvModalOpen(false);
       setEditingEnv(null);
       setEnvName('');
       setEnvGroupName('');
       setEnvVars([]);
-    }).catch(err => {
+    } catch (err) {
       console.error('Error saving environment:', err);
-    });
+    }
   };
 
   const addEnvVarRow = () => {
@@ -516,34 +527,28 @@ export default function App() {
 
   const handleSaveQuickCommand = async (e: React.FormEvent) => {
     e.preventDefault();
-    const qcData: QuickCommand = {
-      id: editingQuickCommand?.id || Math.random().toString(36).substr(2, 9),
-      name: qcName,
+    const qc: QuickCommand = {
+      id:      editingQuickCommand?.id || crypto.randomUUID(),
+      name:    qcName,
       command: qcCommand,
-      cwd: qcCwd || undefined,
-      group: qcGroup || undefined
+      cwd:     qcCwd || undefined,
+      group:   qcGroup || undefined,
     };
 
-    const res = await fetch('/api/quick-commands', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(qcData)
-    });
-
-    if (res.ok) {
-      const updatedRes = await fetch('/api/quick-commands');
-      const updatedData = await updatedRes.json();
-      setQuickCommands(updatedData);
-      setIsQuickCommandModalOpen(false);
+    if (editingQuickCommand) {
+      await quickCommandsApi.update(qc);
+      setQuickCommands(prev => prev.map(q => q.id === qc.id ? qc : q));
+    } else {
+      await quickCommandsApi.create(qc);
+      setQuickCommands(prev => [...prev, qc]);
     }
+    setIsQuickCommandModalOpen(false);
   };
 
   const deleteQuickCommand = async (id: string) => {
     if (!window.confirm('Delete this quick command?')) return;
-    const res = await fetch(`/api/quick-commands/${id}`, { method: 'DELETE' });
-    if (res.ok) {
-      setQuickCommands(prev => prev.filter(q => q.id !== id));
-    }
+    await quickCommandsApi.delete(id);
+    setQuickCommands(prev => prev.filter(q => q.id !== id));
   };
 
   const runQuickCommand = (qc: QuickCommand) => {
@@ -571,35 +576,31 @@ export default function App() {
     setTabLocalVars([]);
   };
 
-  const deleteWorkspace = (id: string) => {
-    fetch(`/api/workspaces/${id}`, { method: 'DELETE' }).then(() => {
-      setWorkspaces(prev => prev.filter(w => w.id !== id));
-    });
+  const deleteWorkspace = async (id: string) => {
+    await workspacesApi.delete(id);
+    setWorkspaces(prev => prev.filter(w => w.id !== id));
   };
 
-  const deleteEnvironment = (id: string) => {
-    fetch(`/api/environments/${id}`, { method: 'DELETE' }).then(() => {
-      setEnvironments(prev => prev.filter(e => e.id !== id));
-    });
+  const deleteEnvironment = async (id: string) => {
+    await environmentsApi.delete(id);
+    setEnvironments(prev => prev.filter(e => e.id !== id));
   };
 
-  const handleExport = () => {
-    const data = {
-      workspaces,
-      environments,
-      quickCommands,
-      version: '1.0',
-      exportedAt: new Date().toISOString()
-    };
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `termisync-backup-${new Date().toISOString().split('T')[0]}.json`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+  const handleExport = async () => {
+    try {
+      const data = await bulkApi.export();
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `konsolx-backup-${new Date().toISOString().split('T')[0]}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error('Export failed:', err);
+    }
   };
 
   const exportGroup = (groupName: string) => {
@@ -642,6 +643,7 @@ export default function App() {
   const handleImport = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    e.target.value = '';
 
     setImportStatus({ message: 'Reading file...', type: 'info' });
 
@@ -649,80 +651,33 @@ export default function App() {
     reader.onload = async (event) => {
       try {
         const data = JSON.parse(event.target?.result as string);
-        if (!data.environments && !data.quickCommands && !data.workspaces) {
+        if (!data.workspaces && !data.environments && !data.quickCommands) {
           setImportStatus({ message: 'Invalid backup file format', type: 'error' });
           return;
         }
 
-        setImportStatus({ message: 'Importing data...', type: 'info' });
-        console.log('Importing data:', data);
+        setImportStatus({ message: 'Importing...', type: 'info' });
+        const result = await bulkApi.import(data);
 
-        // Import Workspaces (if present)
-        if (data.workspaces) {
-          for (const ws of data.workspaces) {
-            console.log('Importing workspace:', ws);
-            const response = await fetch('/api/workspaces', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify(ws)
-            });
-            if (!response.ok) {
-              const errorData = await response.json();
-              throw new Error(`Workspace import failed: ${errorData.error || response.statusText}`);
-            }
-          }
-        }
-        // Import Environments (if present)
-        if (data.environments) {
-          for (const env of data.environments) {
-            await fetch('/api/environments', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify(env)
-            });
-          }
-        }
-
-        // Import Quick Commands (if present)
-        if (data.quickCommands) {
-          for (const qc of data.quickCommands) {
-            await fetch('/api/quick-commands', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify(qc)
-            });
-          }
-        }
-
-        // Refresh data
-        const [wsRes, envRes, qcRes] = await Promise.all([
-          fetch('/api/workspaces'),
-          fetch('/api/environments'),
-          fetch('/api/quick-commands')
+        // Refresh state from server
+        const [ws, envs, qcs] = await Promise.all([
+          workspacesApi.list(),
+          environmentsApi.list(),
+          quickCommandsApi.list(),
         ]);
-        const [wsData, envData, qcData] = await Promise.all([
-          wsRes.json(),
-          envRes.json(),
-          qcRes.json()
-        ]);
-        
-        setWorkspaces(wsData);
-        setEnvironments(envData);
-        setQuickCommands(qcData);
-        
-        setImportStatus({ message: 'Import successful!', type: 'success' });
-        setTimeout(() => setImportStatus(null), 3000);
+        setWorkspaces(ws);
+        setEnvironments(envs);
+        setQuickCommands(qcs);
+
+        const { workspaces: w = 0, environments: env = 0, quickCommands: qc = 0 } = result.imported;
+        setImportStatus({ message: `Imported ${w} workspaces, ${env} environments, ${qc} commands`, type: 'success' });
+        setTimeout(() => setImportStatus(null), 4000);
       } catch (err) {
-        console.error('Import failed:', err);
-        setImportStatus({ message: 'Import failed. Check console for details.', type: 'error' });
+        setImportStatus({ message: err instanceof Error ? err.message : 'Import failed', type: 'error' });
       }
     };
-    reader.onerror = () => {
-      setImportStatus({ message: 'Failed to read file', type: 'error' });
-    };
+    reader.onerror = () => setImportStatus({ message: 'Failed to read file', type: 'error' });
     reader.readAsText(file);
-    // Reset input
-    e.target.value = '';
   };
 
   const handleImportToGroup = (e: React.ChangeEvent<HTMLInputElement>, groupName: string) => {
@@ -1003,6 +958,7 @@ export default function App() {
               }).map(([group, cmds]) => {
                 const isCollapsed = collapsedQcGroups.has(group);
                 const isUngrouped = group === 'Ungrouped';
+                const commands = cmds as QuickCommand[];
                 return (
                   <div key={group} className="space-y-1">
                     {!isUngrouped && (
@@ -1018,7 +974,7 @@ export default function App() {
                         <div className="h-px flex-1 bg-white/5" />
                       </div>
                     )}
-                    {!isCollapsed && cmds.map(qc => (
+                    {!isCollapsed && commands.map(qc => (
                       <div key={qc.id} className="group flex items-center gap-2 px-2 py-1.5 rounded hover:bg-white/5 transition-colors cursor-pointer">
                         <div className="flex-1 flex items-center gap-2" onClick={() => runQuickCommandInCurrentTab(qc)}>
                           <Command size={14} className="text-emerald-400" />
@@ -1108,7 +1064,7 @@ export default function App() {
                         <div 
                           key={idx}
                           onClick={() => {
-                            const id = Math.random().toString(36).substr(2, 9);
+                            const id = crypto.randomUUID();
                             let resolvedPath = dir.path;
                             if (!dir.path.startsWith('/') && ws.basePath) {
                               resolvedPath = `${ws.basePath.replace(/\/$/, '')}/${dir.path.replace(/^\//, '')}`;
@@ -1194,12 +1150,23 @@ export default function App() {
                         key={env.id}
                         onClick={async () => {
                           if (!activeTabId) return;
-                          const busy = await checkTabBusy(activeTabId);
-                          if (busy) {
-                            showBusyToast();
-                            return;
+                          const sessionId = tabSessionsRef.current.get(activeTabId);
+                          if (sessionId) {
+                            try {
+                              await terminalsApi.applyEnv(sessionId, env.id);
+                              // Only update tab state after shell confirms
+                              setTabs(prev => prev.map(t => t.id === activeTabId ? { ...t, envId: env.id } : t));
+                            } catch (err: any) {
+                              if (err.message?.includes("busy")) {
+                                showBusyToast();
+                              }
+                              // api:error event already fired from request() — global toast handles it
+                              // Don't update envId — env was not applied
+                            }
+                          } else {
+                            // No live session yet — just record for when it spawns
+                            setTabs(prev => prev.map(t => t.id === activeTabId ? { ...t, envId: env.id } : t));
                           }
-                          setTabs(prev => prev.map(t => t.id === activeTabId ? { ...t, envId: env.id } : t));
                         }}
                         className={`group flex items-center gap-2 px-2 py-1.5 rounded cursor-pointer transition-colors ${currentEnvId === env.id ? 'bg-emerald-500/10 text-emerald-400' : 'hover:bg-white/5'}`}
                       >
@@ -1265,18 +1232,34 @@ export default function App() {
                 <div className="flex items-center gap-2">
                   <TerminalIcon size={12} className={activeTabId === tab.id ? 'text-emerald-500' : ''} />
                   <div className="flex flex-col min-w-0 flex-1">
-                    <span 
-                      className="truncate font-medium leading-none"
-                      onDoubleClick={(e) => {
-                        e.stopPropagation();
-                        const newTitle = prompt('Rename Tab:', tab.title);
-                        if (newTitle) {
+                    {editingTabTitleId === tab.id ? (
+                      <input
+                        autoFocus
+                        defaultValue={tab.title}
+                        className="bg-transparent border-b border-emerald-500 outline-none text-xs font-medium w-full leading-none"
+                        onClick={e => e.stopPropagation()}
+                        onBlur={e => {
+                          const newTitle = e.target.value.trim() || tab.title;
+                          setEditingTabTitleId(null);
+                          if (newTitle === tab.title) return;
                           setTabs(prev => prev.map(t => t.id === tab.id ? { ...t, title: newTitle } : t));
-                        }
-                      }}
-                    >
-                      {tab.title}
-                    </span>
+                          const sessionId = tabSessionsRef.current.get(tab.id);
+                          if (sessionId) terminalsApi.update(sessionId, { title: newTitle }).catch(() => {});
+                        }}
+                        onKeyDown={e => {
+                          if (e.key === 'Enter') e.currentTarget.blur();
+                          if (e.key === 'Escape') { setEditingTabTitleId(null); }
+                          e.stopPropagation();
+                        }}
+                      />
+                    ) : (
+                      <span
+                        className="truncate font-medium leading-none cursor-text"
+                        onDoubleClick={e => { e.stopPropagation(); setEditingTabTitleId(tab.id); }}
+                      >
+                        {tab.title}
+                      </span>
+                    )}
                   </div>
                   <div className="flex items-center opacity-0 group-hover:opacity-100 transition-opacity">
                     <button 
@@ -1352,31 +1335,17 @@ export default function App() {
                   shell={tab.shell}
                   initialCommand={tab.initialCommand}
                   isActive={activeTabId === tab.id}
-                  env={(() => {
-                    const envObj: Record<string, string> = {};
-                    
-                    // 1. Merge global environment variables (if selected)
-                    const tabEnv = environments.find(e => e.id === tab.envId);
-                    if (tabEnv && Array.isArray(tabEnv.variables)) {
-                      tabEnv.variables.forEach(v => {
-                        if (v.key.trim()) {
-                          envObj[v.key] = v.value;
-                        }
-                      });
-                    }
-
-                    // 2. Merge local tab variables (overrides global)
-                    if (tab.localVariables) {
-                      tab.localVariables.forEach(v => {
-                        if (v.key.trim()) {
-                          envObj[v.key] = v.value;
-                        }
-                      });
-                    }
-                    return envObj;
-                  })()} 
+                  sessionId={tab.sessionId}
+                  title={tab.title}
+                  groupName={tab.groupName}
+                  groupColor={tab.groupColor}
+                  envId={tab.envId}
+                  sortOrder={tabs.indexOf(tab)}
                   onClose={() => closeTab(tab.id)}
-                  onSessionReady={(sessionId) => tabSessionsRef.current.set(tab.id, sessionId)}
+                  onSessionReady={(sessionId) => {
+                    tabSessionsRef.current.set(tab.id, sessionId);
+                    setTabs(prev => prev.map(t => t.id === tab.id ? { ...t, sessionId } : t));
+                  }}
                   onSessionEnd={() => { tabSessionsRef.current.delete(tab.id); tabInputsRef.current.delete(tab.id); }}
                   onInputReady={(fn) => tabInputsRef.current.set(tab.id, fn)}
                 />
@@ -1910,6 +1879,21 @@ export default function App() {
           >
             <AlertTriangle size={12} />
             <span>Terminal is busy — stop the running process first</span>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Global API error toast */}
+      <AnimatePresence>
+        {apiErrorToast && (
+          <motion.div
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 10 }}
+            className="fixed bottom-4 right-4 z-[200] flex items-center gap-2 px-3 py-2 bg-red-500/10 border border-red-500/20 rounded-lg text-xs text-red-400 shadow-xl"
+          >
+            <AlertTriangle size={12} />
+            <span>{apiErrorToast}</span>
           </motion.div>
         )}
       </AnimatePresence>

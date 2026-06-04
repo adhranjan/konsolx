@@ -2,6 +2,11 @@ import express from "express";
 import { createServer } from "http";
 import { WebSocketServer, WebSocket } from "ws";
 import { createServer as createViteServer } from "vite";
+import { fileURLToPath } from "url";
+import path from "path";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const ROOT = path.resolve(__dirname, "..");
 
 // Init DB (runs migrations + seeds on import)
 import "./database/index.js";
@@ -44,16 +49,23 @@ export async function startServer() {
   wss.on("close", () => clearInterval(heartbeat));
 
   wss.on("connection", (ws: WebSocket, req) => {
-    handleWebSocket(ws as any, req, wss);
+    handleWebSocket(ws as any, req);
   });
 
   // Static / Vite
   const isDev = process.env.NODE_ENV === "development";
   if (isDev) {
-    const vite = await createViteServer({ server: { middlewareMode: true }, appType: "spa" });
+    const vite = await createViteServer({
+      root: ROOT,
+      server: { middlewareMode: true },
+      appType: "spa",
+    });
     app.use(vite.middlewares);
   } else {
-    app.use(express.static("dist"));
+    const distDir = path.join(ROOT, "dist");
+    app.use(express.static(distDir));
+    // SPA fallback — serve index.html for all non-API routes
+    app.get("*", (_, res) => res.sendFile(path.join(distDir, "index.html")));
   }
 
   const PORT = Number(process.env.PORT ?? 8012);

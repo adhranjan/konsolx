@@ -20,6 +20,7 @@ export interface Environment {
 
 export interface Tab {
   id: string;
+  sessionId?: string;      // server-side terminal session ID
   title: string;
   cwd: string;
   shell?: string;

@@ -9,6 +9,7 @@ import {
   isBusy,
   TerminalSession,
 } from "../sessions.js";
+import { environmentDb } from "../database/environments.js";
 
 export interface TerminalState {
   sessionId:   string;
@@ -16,39 +17,60 @@ export interface TerminalState {
   cwd:         string;
   clientCount: number;
   busy:        boolean;
+  title?:      string;
+  groupName?:  string;
+  groupColor?: string;
+  envId?:      string;
+  sortOrder?:  number;
 }
 
 export interface CreateTerminalOptions {
   cwd?:            string;
-  env?:            Record<string, string>;
   shell?:          string;
   cols?:           number;
   rows?:           number;
   initialCommand?: string;
+  title?:          string;
+  groupName?:      string;
+  groupColor?:     string;
+  envId?:          string;   // server resolves vars from DB
+  sortOrder?:      number;
 }
 
+export function updateTerminalMeta(sessionId: string, meta: Partial<Pick<TerminalState, 'title' | 'groupName' | 'groupColor' | 'envId' | 'sortOrder'>>): boolean {
+  const session = sessions.get(sessionId);
+  if (!session) return false;
+  if (meta.title      !== undefined) session.title      = meta.title;
+  if (meta.groupName  !== undefined) session.groupName  = meta.groupName;
+  if (meta.groupColor !== undefined) session.groupColor = meta.groupColor;
+  if (meta.envId      !== undefined) session.envId      = meta.envId;
+  if (meta.sortOrder  !== undefined) session.sortOrder  = meta.sortOrder;
+  return true;
+}
+
+const toState = async (sessionId: string, s: typeof sessions extends Map<string, infer V> ? V : never): Promise<TerminalState> => ({
+  sessionId,
+  pid:         s.pid,
+  cwd:         s.cwd,
+  clientCount: s.clients.size,
+  busy:        await isBusy(sessionId),
+  title:       s.title,
+  groupName:   s.groupName,
+  groupColor:  s.groupColor,
+  envId:       s.envId,
+  sortOrder:   s.sortOrder,
+});
+
 export async function listTerminals(): Promise<TerminalState[]> {
-  return Promise.all(
-    [...sessions.entries()].map(async ([sessionId, s]) => ({
-      sessionId,
-      pid:         s.pid,
-      cwd:         s.cwd,
-      clientCount: s.clients.size,
-      busy:        await isBusy(sessionId),
-    }))
-  );
+  const entries = [...sessions.entries()];
+  const states  = await Promise.all(entries.map(([id, s]) => toState(id, s)));
+  return states.sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
 }
 
 export async function getTerminal(sessionId: string): Promise<TerminalState | null> {
   const s = sessions.get(sessionId);
   if (!s) return null;
-  return {
-    sessionId,
-    pid:         s.pid,
-    cwd:         s.cwd,
-    clientCount: s.clients.size,
-    busy:        await isBusy(sessionId),
-  };
+  return toState(sessionId, s);
 }
 
 export function spawnTerminal(opts: CreateTerminalOptions): TerminalSession {
@@ -67,10 +89,59 @@ export function spawnTerminal(opts: CreateTerminalOptions): TerminalSession {
     session.shell.stdout.emit("data", Buffer.from(`\x1b[1;32m[${label}]\x1b[0m\r\n`));
   }
 
-  // Send setup commands once the prompt appears
   sendSetupCommands(session, opts);
 
   return session;
+}
+
+/** Apply an env to the live shell — injects its vars and records it as the active env.
+ *  Rejects if the shell is busy or if the sentinel echo isn't seen within 5s. */
+export async function applyEnvToTerminal(sessionId: string, envId: string): Promise<void> {
+  const session = sessions.get(sessionId);
+  if (!session) throw new Error("Session not found");
+
+  const env = environmentDb.list().find(e => e.id === envId);
+  if (!env) throw new Error("Environment not found");
+
+  if (!session.shell.stdin.writable) throw new Error("Shell stdin not writable");
+
+  // Refuse if a program is currently running
+  if (await isBusy(sessionId)) throw new Error("Terminal is busy");
+
+  const exports = env.variables
+    .filter(v => v.key.trim())
+    .map(({ key, value }) => `export ${key}=${JSON.stringify(value)}`)
+    .join("\n");
+
+  // Write exports + sentinel in one shot
+  const SENTINEL = `__ENV_APPLIED_${Date.now()}__`;
+
+  await new Promise<void>((resolve, reject) => {
+    const TIMEOUT_MS = 5000;
+    let buf = "";
+
+    const onData = (chunk: Buffer) => {
+      buf += chunk.toString();
+      if (buf.includes(SENTINEL)) {
+        session.shell.stdout.removeListener("data", onData);
+        clearTimeout(timer);
+        resolve();
+      }
+    };
+
+    const timer = setTimeout(() => {
+      session.shell.stdout.removeListener("data", onData);
+      reject(new Error("Timed out waiting for shell confirmation"));
+    }, TIMEOUT_MS);
+
+    session.shell.stdout.on("data", onData);
+
+    // Write exports (if any) then the sentinel echo
+    if (exports) session.shell.stdin.write(`${exports}\n`);
+    session.shell.stdin.write(`echo ${SENTINEL}\n`);
+  });
+
+  session.envId = envId;
 }
 
 export { deleteSession as killTerminal, attachClient, detachClient };
@@ -78,8 +149,21 @@ export { deleteSession as killTerminal, attachClient, detachClient };
 // ── Internal ─────────────────────────────────────────────────────────────────
 
 function sendSetupCommands(session: TerminalSession, opts: CreateTerminalOptions): void {
-  const { cwd, env, initialCommand } = opts;
-  const hasSetup = (env && Object.keys(env).length > 0) || (cwd && path.isAbsolute(cwd)) || initialCommand;
+  const { cwd, envId, initialCommand } = opts;
+
+  // Resolve env vars from DB if envId provided
+  let envExports = "";
+  if (envId) {
+    const env = environmentDb.list().find(e => e.id === envId);
+    if (env) {
+      envExports = env.variables
+        .filter(v => v.key.trim())
+        .map(({ key, value }) => `export ${key}=${JSON.stringify(value)}`)
+        .join("\n");
+    }
+  }
+
+  const hasSetup = envExports || (cwd && path.isAbsolute(cwd)) || initialCommand;
   if (!hasSetup) return;
 
   let promptDetected = false;
@@ -88,10 +172,7 @@ function sendSetupCommands(session: TerminalSession, opts: CreateTerminalOptions
 
   const onPrompt = () => {
     if (!session.shell.stdin.writable) return;
-    if (env && Object.keys(env).length > 0) {
-      const exports = Object.entries(env).map(([k, v]) => `export ${k}=${JSON.stringify(v)}`).join("\n");
-      session.shell.stdin.write(`${exports}\n`);
-    }
+    if (envExports) session.shell.stdin.write(`${envExports}\n`);
     if (cwd && path.isAbsolute(cwd)) session.shell.stdin.write(`cd "${cwd}"\n`);
     if (initialCommand) session.shell.stdin.write(`${initialCommand}\n`);
   };
@@ -110,10 +191,10 @@ function sendSetupCommands(session: TerminalSession, opts: CreateTerminalOptions
     if (!promptDetected) session.shell.stdout.once("data", listen);
   });
 
-  // Fallback: send anyway after 5s if prompt never detected
   setTimeout(() => {
     if (!promptDetected && session.shell.stdin.writable) {
       promptDetected = true;
+      if (envExports) session.shell.stdin.write(`${envExports}\n`);
       if (cwd && path.isAbsolute(cwd)) session.shell.stdin.write(`cd "${cwd}"\n`);
       if (initialCommand) session.shell.stdin.write(`${initialCommand}\n`);
     }

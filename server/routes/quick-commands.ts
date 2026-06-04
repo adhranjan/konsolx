@@ -16,6 +16,15 @@ router.post("/quick-commands", (req, res) => {
   }
 });
 
+router.put("/quick-commands/:id", (req, res) => {
+  try {
+    saveQuickCommand({ ...req.body, id: req.params.id });
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+  }
+});
+
 router.delete("/quick-commands/:id", (req, res) => {
   deleteQuickCommand(req.params.id);
   res.json({ success: true });

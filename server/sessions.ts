@@ -33,12 +33,18 @@ if (stale.length > 0) {
 // ────────────────────────────────────────────────────────────────────────────
 
 export interface TerminalSession {
-  sessionId: string;
-  shell: ChildProcessWithoutNullStreams;
-  pid: number;
-  cwd: string;
-  clients: Set<WebSocket>;
-  buffer: string;
+  sessionId:   string;
+  shell:       ChildProcessWithoutNullStreams;
+  pid:         number;
+  cwd:         string;
+  clients:     Set<WebSocket>;
+  buffer:      string;
+  // Display metadata — set by the frontend, returned on GET /api/terminals
+  title?:      string;
+  groupName?:  string;
+  groupColor?: string;
+  envId?:      string;
+  sortOrder?:  number;
 }
 
 const BUFFER_MAX = 50_000;
@@ -87,7 +93,15 @@ export const isBusy = async (sessionId: string): Promise<boolean> => {
 };
 // ────────────────────────────────────────────────────────────────────────────
 
-export function createSession(opts: SpawnShellOptions): TerminalSession {
+export interface CreateSessionOptions extends SpawnShellOptions {
+  title?:      string;
+  groupName?:  string;
+  groupColor?: string;
+  envId?:      string;
+  sortOrder?:  number;
+}
+
+export function createSession(opts: CreateSessionOptions): TerminalSession {
   const sessionId = crypto.randomUUID();
   const shell     = OSInterface.spawnShell(opts);
 
@@ -96,10 +110,15 @@ export function createSession(opts: SpawnShellOptions): TerminalSession {
   const session: TerminalSession = {
     sessionId,
     shell,
-    pid: shell.pid,
-    cwd: opts.cwd ?? process.cwd(),
-    clients: new Set(),
-    buffer: "",
+    pid:        shell.pid,
+    cwd:        opts.cwd ?? process.cwd(),
+    clients:    new Set(),
+    buffer:     "",
+    title:      opts.title,
+    groupName:  opts.groupName,
+    groupColor: opts.groupColor,
+    envId:      opts.envId,
+    sortOrder:  opts.sortOrder,
   };
 
   sessions.set(sessionId, session);

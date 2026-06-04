@@ -1,115 +1,133 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Terminal } from 'xterm';
 import { FitAddon } from 'xterm-addon-fit';
-import { RefreshCw, X } from 'lucide-react';
+import { RefreshCw } from 'lucide-react';
+import { terminalsApi } from '../api';
 import 'xterm/css/xterm.css';
 
 interface TerminalComponentProps {
-  cwd: string;
-  env: Record<string, string>;
-  shell?: string;
+  cwd:             string;
+  shell?:          string;
   initialCommand?: string;
-  isActive?: boolean;
-  onClose: () => void;
+  isActive?:       boolean;
+  sessionId?:      string;   // if provided, attach to existing session instead of creating
+  title?:          string;
+  groupName?:      string;
+  groupColor?:     string;
+  envId?:          string;
+  sortOrder?:      number;
+  onClose:         () => void;
   onSessionReady?: (sessionId: string) => void;
-  onSessionEnd?: () => void;
-  onInputReady?: (sendInput: (cmd: string) => void) => void;
+  onSessionEnd?:   () => void;
+  onInputReady?:   (sendInput: (cmd: string) => void) => void;
 }
 
-const TerminalComponent: React.FC<TerminalComponentProps> = ({ cwd, env, shell, initialCommand, isActive, onClose, onSessionReady, onSessionEnd, onInputReady }) => {
-  const terminalRef = useRef<HTMLDivElement>(null);
-  const xtermRef = useRef<Terminal | null>(null);
-  const fitAddonRef = useRef<FitAddon | null>(null);
-  const wsRef = useRef<WebSocket | null>(null);
+const TerminalComponent: React.FC<TerminalComponentProps> = ({
+  cwd, shell, initialCommand, isActive,
+  sessionId: existingSessionId, title, groupName, groupColor, envId, sortOrder,
+  onClose, onSessionReady, onSessionEnd, onInputReady,
+}) => {
+  const terminalRef    = useRef<HTMLDivElement>(null);
+  const xtermRef       = useRef<Terminal | null>(null);
+  const fitAddonRef    = useRef<FitAddon | null>(null);
+  const wsRef          = useRef<WebSocket | null>(null);
+  const sessionIdRef   = useRef<string | null>(null);
+  const isFirstMount   = useRef(true);
   const [isDisconnected, setIsDisconnected] = useState(false);
-  const [reconnectKey, setReconnectKey] = useState(0);
+  const [reconnectKey, setReconnectKey]     = useState(0);
 
   useEffect(() => {
     if (!terminalRef.current) return;
 
     setIsDisconnected(false);
 
+    // ── 1. Boot xterm ────────────────────────────────────────────────────────
     const term = new Terminal({
-      cursorBlink: true,
-      fontSize: 14,
-      fontFamily: '"JetBrains Mono", monospace',
-      convertEol: true,
-      copyOnSelect: true,
-      theme: {
-        background: '#0a0a0a',
-        foreground: '#e0e0e0',
-      },
+      cursorBlink:  true,
+      fontSize:     14,
+      fontFamily:   '"JetBrains Mono", monospace',
+      convertEol:   true,
+      theme: { background: '#0a0a0a', foreground: '#e0e0e0' },
     });
     const fitAddon = new FitAddon();
     fitAddonRef.current = fitAddon;
     term.loadAddon(fitAddon);
     term.open(terminalRef.current);
     if (terminalRef.current.offsetWidth > 0) {
-      try {
-        fitAddon.fit();
-      } catch (e) {
-        console.warn('Initial fit failed:', e);
-      }
+      try { fitAddon.fit(); } catch {}
     }
     xtermRef.current = term;
 
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const ws = new WebSocket(`${protocol}//${window.location.host}`);
-    wsRef.current = ws;
+    let cancelled = false;
 
-    ws.onopen = () => {
-      ws.send(JSON.stringify({
-        type: 'init',
-        cwd,
-        env,
-        shell,
-        initialCommand,
-        cols: term.cols,
-        rows: term.rows
-      }));
+    // ── 2. Create or reuse session via HTTP ─────────────────────────────────
+    // existingSessionId is only used on the very first mount (browser refresh restore).
+    // Any re-run (env change, reconnect) always spawns a fresh session.
+    const useExisting = isFirstMount.current && !!existingSessionId;
+    isFirstMount.current = false;
 
-      onInputReady?.((cmd: string) => {
+    const sessionPromise = useExisting
+      ? Promise.resolve({ sessionId: existingSessionId! })
+      : terminalsApi.create({ cwd, shell, cols: term.cols, rows: term.rows, initialCommand, title, groupName, groupColor, envId, sortOrder });
+
+    sessionPromise.then(({ sessionId }) => {
+      if (cancelled) {
+        // Component unmounted before session was created — clean up immediately
+        terminalsApi.delete(sessionId);
+        return;
+      }
+
+      sessionIdRef.current = sessionId;
+      onSessionReady?.(sessionId);
+
+      // ── 3. Open WS and attach ──────────────────────────────────────────────
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const ws = new WebSocket(`${protocol}//${window.location.host}`);
+      wsRef.current = ws;
+
+      ws.onopen = () => {
+        ws.send(JSON.stringify({ type: 'attach', sessionId }));
+
+        onInputReady?.((cmd: string) => {
+          if (ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ type: 'input', data: cmd + '\n' }));
+          }
+        });
+      };
+
+      ws.onmessage = (event) => {
+        const msg = JSON.parse(event.data);
+        if (msg.type === 'output') term.write(msg.data);
+        if (msg.type === 'exit')   term.write(msg.message ?? '\r\n[Session ended]\r\n');
+        if (msg.type === 'error')  term.write(`\r\n[Error: ${msg.message}]\r\n`);
+      };
+
+      ws.onclose = (event) => {
+        if (wsRef.current === ws) {
+          setIsDisconnected(true);
+          term.write(event.wasClean
+            ? '\r\n[Terminal session closed]\r\n'
+            : '\r\n[Connection lost]\r\n'
+          );
+        }
+      };
+
+      term.onData((data) => {
         if (ws.readyState === WebSocket.OPEN) {
-          ws.send(JSON.stringify({ type: 'input', data: cmd + '\n' }));
+          ws.send(JSON.stringify({ type: 'input', data }));
         }
       });
-    };
-
-    ws.onmessage = (event) => {
-      const data = JSON.parse(event.data);
-      if (data.type === 'output') {
-        term.write(data.data);
-      } else if (data.type === 'session') {
-        onSessionReady?.(data.sessionId);
-      }
-    };
-
-    ws.onclose = (event) => {
-      // Only show disconnected UI if it wasn't closed by our own cleanup
-      if (wsRef.current === ws) {
-        setIsDisconnected(true);
-        if (event.wasClean) {
-          term.write('\r\n[Terminal session closed]\r\n');
-        } else {
-          term.write('\r\n[Connection lost]\r\n');
-        }
-      }
-    };
-
-    term.onData((data) => {
-      if (ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({ type: 'input', data }));
-      }
+    }).catch((err) => {
+      term.write(`\r\n[Failed to start terminal: ${err.message}]\r\n`);
+      setIsDisconnected(true);
     });
 
-    // Handle Ctrl+Shift+C inside the terminal — copy selection and stop
-    // the event from bubbling to the document DevTools blocker.
+    // ── Ctrl+Shift+C → copy selection ────────────────────────────────────────
     const handleTerminalCopy = (e: KeyboardEvent) => {
       if (e.ctrlKey && e.shiftKey && (e.key === 'C' || e.key === 'c')) {
         const selection = term.getSelection();
         if (selection) {
           navigator.clipboard.writeText(selection).catch(() => {
-            // Fallback for older browsers
             const el = document.createElement('textarea');
             el.value = selection;
             document.body.appendChild(el);
@@ -122,85 +140,79 @@ const TerminalComponent: React.FC<TerminalComponentProps> = ({ cwd, env, shell, 
         e.stopImmediatePropagation();
       }
     };
+    terminalRef.current?.addEventListener('keydown', handleTerminalCopy, true);
 
-    if (terminalRef.current) {
-      terminalRef.current.addEventListener('keydown', handleTerminalCopy, true);
-    }
-
+    // ── Resize observer ──────────────────────────────────────────────────────
     const handleResize = () => {
       if (terminalRef.current && terminalRef.current.offsetWidth > 0) {
         try {
           fitAddon.fit();
-          if (ws.readyState === WebSocket.OPEN) {
-            ws.send(JSON.stringify({
-              type: 'resize',
-              cols: term.cols,
-              rows: term.rows
-            }));
+          const ws = wsRef.current;
+          if (ws?.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ type: 'resize', cols: term.cols, rows: term.rows }));
           }
-        } catch (e) {
-          console.warn('Fit failed:', e);
-        }
+        } catch {}
       }
     };
 
-    const resizeObserver = new ResizeObserver(() => {
-      handleResize();
-    });
-
-    if (terminalRef.current) {
-      resizeObserver.observe(terminalRef.current);
-    }
-
+    const resizeObserver = new ResizeObserver(handleResize);
+    if (terminalRef.current) resizeObserver.observe(terminalRef.current);
     window.addEventListener('resize', handleResize);
 
     const handleBeforeUnload = (e: BeforeUnloadEvent) => {
-      if (ws.readyState === WebSocket.OPEN) {
+      if (wsRef.current?.readyState === WebSocket.OPEN) {
         e.preventDefault();
         e.returnValue = '';
         return '';
       }
     };
-
     window.addEventListener('beforeunload', handleBeforeUnload);
 
+    // ── Cleanup ──────────────────────────────────────────────────────────────
     return () => {
+      cancelled = true;
       window.removeEventListener('resize', handleResize);
       window.removeEventListener('beforeunload', handleBeforeUnload);
       resizeObserver.disconnect();
       terminalRef.current?.removeEventListener('keydown', handleTerminalCopy, true);
       onSessionEnd?.();
-      if (wsRef.current === ws) {
-        wsRef.current = null;
-      }
-      if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
+
+      const ws = wsRef.current;
+      wsRef.current = null;
+      if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) {
         ws.close();
       }
+
+      // Kill session via HTTP on unmount
+      const sid = sessionIdRef.current;
+      if (sid) {
+        sessionIdRef.current = null;
+        terminalsApi.delete(sid).catch(() => {});
+      }
+
       term.dispose();
     };
-  }, [cwd, JSON.stringify(env), shell, reconnectKey]);
+  }, [cwd, shell, reconnectKey]); // env changes handled via PUT /api/terminals/:id/env/:envId — no remount needed
 
-  // When this tab becomes active, wait for layout to settle then fit
+  // Fit when tab becomes active
   useEffect(() => {
     if (!isActive) return;
     const raf = requestAnimationFrame(() => {
-      if (terminalRef.current && terminalRef.current.offsetWidth > 0 && fitAddonRef.current) {
+      if (terminalRef.current?.offsetWidth > 0 && fitAddonRef.current) {
         try {
           fitAddonRef.current.fit();
-          if (wsRef.current?.readyState === WebSocket.OPEN && xtermRef.current) {
-            wsRef.current.send(JSON.stringify({
-              type: 'resize',
-              cols: xtermRef.current.cols,
-              rows: xtermRef.current.rows
-            }));
+          const ws = wsRef.current;
+          if (ws?.readyState === WebSocket.OPEN && xtermRef.current) {
+            ws.send(JSON.stringify({ type: 'resize', cols: xtermRef.current.cols, rows: xtermRef.current.rows }));
           }
-        } catch (e) {}
+        } catch {}
       }
     });
     return () => cancelAnimationFrame(raf);
   }, [isActive]);
 
   const handleRestart = () => {
+    sessionIdRef.current = null;
     setReconnectKey(prev => prev + 1);
   };
 
@@ -209,7 +221,7 @@ const TerminalComponent: React.FC<TerminalComponentProps> = ({ cwd, env, shell, 
       <div ref={terminalRef} className="w-full h-full" />
       {isDisconnected && (
         <div className="absolute inset-0 flex items-center justify-center bg-black/40 backdrop-blur-[1px] z-10">
-          <button 
+          <button
             onClick={handleRestart}
             className="flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-md shadow-lg transition-colors font-medium"
           >
