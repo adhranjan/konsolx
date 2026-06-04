@@ -52,6 +52,8 @@ export default function App() {
   const [isTabSettingsModalOpen, setIsTabSettingsModalOpen] = useState(false);
   const [editingTabSettings, setEditingTabSettings] = useState<Tab | null>(null);
   const [editingTabTitleId, setEditingTabTitleId] = useState<string | null>(null);
+  const [confirmModal, setConfirmModal] = useState<{ message: string; onConfirm: () => void } | null>(null);
+  const confirm = (message: string, onConfirm: () => void) => setConfirmModal({ message, onConfirm });
   const [isQuickCommandModalOpen, setIsQuickCommandModalOpen] = useState(false);
   const [editingQuickCommand, setEditingQuickCommand] = useState<QuickCommand | null>(null);
 
@@ -214,11 +216,9 @@ export default function App() {
     setActiveTabId(id);
   };
 
-  const closeTab = (id: string) => {
-    // Kill the server session explicitly — don't rely solely on component unmount
+  const doCloseTab = (id: string) => {
     const sessionId = tabSessionsRef.current.get(id);
     if (sessionId) terminalsApi.delete(sessionId).catch(() => {});
-
     setTabs(prev => {
       const remainingTabs = prev.filter(t => t.id !== id);
       if (activeTabId === id) {
@@ -226,6 +226,10 @@ export default function App() {
       }
       return remainingTabs;
     });
+  };
+
+  const closeTab = (id: string) => {
+    confirm('Close this terminal?', () => doCloseTab(id));
   };
 
   // Prevent accidental browser tab closure
@@ -545,10 +549,11 @@ export default function App() {
     setIsQuickCommandModalOpen(false);
   };
 
-  const deleteQuickCommand = async (id: string) => {
-    if (!window.confirm('Delete this quick command?')) return;
-    await quickCommandsApi.delete(id);
-    setQuickCommands(prev => prev.filter(q => q.id !== id));
+  const deleteQuickCommand = (id: string) => {
+    confirm('Delete this quick command?', async () => {
+      await quickCommandsApi.delete(id);
+      setQuickCommands(prev => prev.filter(q => q.id !== id));
+    });
   };
 
   const runQuickCommand = (qc: QuickCommand) => {
@@ -576,14 +581,18 @@ export default function App() {
     setTabLocalVars([]);
   };
 
-  const deleteWorkspace = async (id: string) => {
-    await workspacesApi.delete(id);
-    setWorkspaces(prev => prev.filter(w => w.id !== id));
+  const deleteWorkspace = (id: string) => {
+    confirm('Delete this workspace?', async () => {
+      await workspacesApi.delete(id);
+      setWorkspaces(prev => prev.filter(w => w.id !== id));
+    });
   };
 
-  const deleteEnvironment = async (id: string) => {
-    await environmentsApi.delete(id);
-    setEnvironments(prev => prev.filter(e => e.id !== id));
+  const deleteEnvironment = (id: string) => {
+    confirm('Delete this environment?', async () => {
+      await environmentsApi.delete(id);
+      setEnvironments(prev => prev.filter(e => e.id !== id));
+    });
   };
 
   const handleExport = async () => {
@@ -1867,6 +1876,43 @@ export default function App() {
           </div>
         </div>
       </Modal>
+
+      {/* Confirm modal */}
+      <AnimatePresence>
+        {confirmModal && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[300] flex items-center justify-center bg-black/60 backdrop-blur-sm"
+            onClick={() => setConfirmModal(null)}
+          >
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              onClick={e => e.stopPropagation()}
+              className="bg-[#141414] border border-white/10 rounded-xl shadow-2xl p-6 w-80 flex flex-col gap-4"
+            >
+              <p className="text-sm text-white/80">{confirmModal.message}</p>
+              <div className="flex justify-end gap-2">
+                <button
+                  onClick={() => setConfirmModal(null)}
+                  className="px-3 py-1.5 text-xs rounded-md bg-white/5 hover:bg-white/10 text-white/60 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => { confirmModal.onConfirm(); setConfirmModal(null); }}
+                  className="px-3 py-1.5 text-xs rounded-md bg-red-600 hover:bg-red-500 text-white font-medium transition-colors"
+                >
+                  Delete
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Busy terminal toast */}
       <AnimatePresence>
