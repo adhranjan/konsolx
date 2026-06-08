@@ -4,9 +4,19 @@ import { WebSocketServer, WebSocket } from "ws";
 import { createServer as createViteServer } from "vite";
 import { fileURLToPath } from "url";
 import path from "path";
+import fs from "fs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const ROOT = path.resolve(__dirname, "..");
+// In dev (tsx): __dirname = <project>/server  → go up 1
+// In prod (compiled): __dirname = <project>/build/server → go up 2
+// Resolve to wherever package.json lives by walking up until we find it
+function findRoot(dir: string): string {
+  if (fs.existsSync(path.join(dir, "package.json"))) return dir;
+  const parent = path.dirname(dir);
+  if (parent === dir) return dir; // filesystem root fallback
+  return findRoot(parent);
+}
+const ROOT = findRoot(__dirname);
 
 // Init DB (runs migrations + seeds on import)
 import "./database/index.js";
