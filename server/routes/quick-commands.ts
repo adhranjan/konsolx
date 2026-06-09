@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { listQuickCommands, saveQuickCommand, deleteQuickCommand } from "../services/quick-commands.js";
+import { checkRiskyCommand } from "../services/risky-commands.js";
 
 const router = Router();
 
@@ -8,6 +9,8 @@ router.get("/quick-commands", (req, res) => {
 });
 
 router.post("/quick-commands", (req, res) => {
+  const risk = checkRiskyCommand(req.body.command ?? "");
+  if (risk) return res.status(422).json({ error: `Risky command blocked: ${risk}` });
   try {
     saveQuickCommand(req.body);
     res.json({ success: true });
@@ -17,6 +20,8 @@ router.post("/quick-commands", (req, res) => {
 });
 
 router.put("/quick-commands/:id", (req, res) => {
+  const risk = checkRiskyCommand(req.body.command ?? "");
+  if (risk) return res.status(422).json({ error: `Risky command blocked: ${risk}` });
   try {
     saveQuickCommand({ ...req.body, id: req.params.id });
     res.json({ success: true });
