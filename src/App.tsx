@@ -42,6 +42,8 @@ export default function App() {
   const [activeTabId, setActiveTabId] = useState<string | null>(null);
   const [defaultShell, setDefaultShell] = useState<string>('');
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+  const [sidebarWidth, setSidebarWidth] = useState(260);
+  const isResizing = useRef(false);
   const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
   const [commandSearch, setCommandSearch] = useState('');
 
@@ -908,11 +910,38 @@ export default function App() {
 
       <div className="flex flex-1 overflow-hidden">
         {/* Sidebar */}
-        <motion.div 
+        <motion.div
           initial={false}
-          animate={{ width: isSidebarOpen ? 260 : 0 }}
-          className="bg-[#141414] border-r border-white/5 flex flex-col overflow-hidden"
+          animate={{ width: isSidebarOpen ? sidebarWidth : 0 }}
+          className="bg-[#141414] flex flex-col overflow-hidden relative flex-shrink-0"
+          style={{ minWidth: isSidebarOpen ? 180 : 0, maxWidth: 480 }}
         >
+          {/* Resize handle */}
+          {isSidebarOpen && (
+            <div
+              className="absolute right-0 top-0 h-full w-1 cursor-col-resize z-10 group"
+              onMouseDown={e => {
+                e.preventDefault();
+                isResizing.current = true;
+                const startX = e.clientX;
+                const startW = sidebarWidth;
+                const onMove = (ev: MouseEvent) => {
+                  if (!isResizing.current) return;
+                  const next = Math.min(480, Math.max(180, startW + ev.clientX - startX));
+                  setSidebarWidth(next);
+                };
+                const onUp = () => {
+                  isResizing.current = false;
+                  window.removeEventListener('mousemove', onMove);
+                  window.removeEventListener('mouseup', onUp);
+                };
+                window.addEventListener('mousemove', onMove);
+                window.addEventListener('mouseup', onUp);
+              }}
+            >
+              <div className="h-full w-px bg-white/5 group-hover:bg-emerald-500/40 transition-colors" />
+            </div>
+          )}
           <div className="p-4 flex items-center justify-between border-b border-white/5">
           <div className="flex items-center gap-2 font-semibold">
             <TerminalIcon size={18} className="text-emerald-500" />
