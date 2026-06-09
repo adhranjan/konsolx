@@ -138,8 +138,8 @@ export default function App() {
         const updated = sessions.map(s => {
           const existing = prev.find(t => t.sessionId === s.sessionId);
           return existing
-            ? { ...existing, title: s.title ?? existing.title, cwd: s.cwd, groupName: s.groupName, groupColor: s.groupColor, envId: s.envId }
-            : { id: crypto.randomUUID(), sessionId: s.sessionId, title: s.title ?? s.cwd.split('/').pop() ?? 'Terminal', cwd: s.cwd, groupName: s.groupName, groupColor: s.groupColor, envId: s.envId, vars: s.vars ?? {} };
+            ? { ...existing, title: s.title ?? existing.title, cwd: s.cwd, groupName: s.groupName, groupColor: s.groupColor, groupOrder: s.groupOrder, envId: s.envId }
+            : { id: crypto.randomUUID(), sessionId: s.sessionId, title: s.title ?? s.cwd.split('/').pop() ?? 'Terminal', cwd: s.cwd, groupName: s.groupName, groupColor: s.groupColor, groupOrder: s.groupOrder, envId: s.envId, vars: s.vars ?? {} };
         });
         // Fix active tab inside the same setState to avoid stale reference
         setActiveTabId(currentActive => {
@@ -331,43 +331,22 @@ export default function App() {
     });
   };
 
-  const selectWorkspace = (ws: Workspace) => {
-    console.log('Opening workspace:', ws.name, 'Directories:', ws.directories);
-    if (!ws.directories || !Array.isArray(ws.directories) || ws.directories.length === 0) {
-      console.warn('Workspace has no directories or directories is not an array');
-      return;
-    }
-
-    const groupColor = getGroupColor(ws.name);
-    const newTabs: Tab[] = [];
-    
-    for (let i = 0; i < ws.directories.length; i++) {
-      const dir = ws.directories[i];
-      const id = crypto.randomUUID();
-      let resolvedPath = dir.path;
-      if (!dir.path.startsWith('/') && ws.basePath) {
-        resolvedPath = `${ws.basePath.replace(/\/$/, '')}/${dir.path.replace(/^\//, '')}`;
-      }
-
-      newTabs.push({ 
-        id, 
-        title: dir.name || dir.path.split('/').pop() || dir.path, 
-        cwd: resolvedPath, 
-        shell: defaultShell || undefined,
-        envId: undefined,
-        vars: {},
-        groupName: ws.name,
-        groupColor
-      });
-    }
-    
-    console.log('Adding', newTabs.length, 'new tabs to existing', tabs.length, 'tabs');
+  const selectWorkspace = async (ws: Workspace) => {
+    if (!ws.directories?.length) return;
+    const terminals = await workspacesApi.open(ws.id);
+    const newTabs: Tab[] = terminals.map(s => ({
+      id:         crypto.randomUUID(),
+      sessionId:  s.sessionId,
+      title:      s.title ?? s.cwd.split('/').pop() ?? 'Terminal',
+      cwd:        s.cwd,
+      groupName:  s.groupName,
+      groupColor: s.groupColor,
+      groupOrder: s.groupOrder,
+      envId:      s.envId,
+      vars:       s.vars ?? {},
+    }));
     setTabs(prev => [...prev, ...newTabs]);
-    
-    if (newTabs.length > 0) {
-      console.log('Setting active tab to:', newTabs[0].id);
-      setActiveTabId(newTabs[0].id);
-    }
+    if (newTabs.length > 0) setActiveTabId(newTabs[0].id);
   };
 
   const handleSaveWorkspace = async (e: React.FormEvent) => {
@@ -1300,12 +1279,23 @@ export default function App() {
           className="h-12 bg-[#141414] border-b border-white/5 flex items-center px-2 gap-0.5 overflow-x-auto no-scrollbar"
         >
           {tabs.map((tab, idx) => {
-            const prevTab = tabs[idx - 1];
-            const isSameGroup = prevTab && prevTab.groupName === tab.groupName && tab.groupName !== undefined;
-            
+            const isSameGroup  = idx > 0 && tabs[idx - 1].groupOrder === tab.groupOrder && tab.groupOrder !== undefined;
+            const isGroupStart = tab.groupOrder !== undefined &&
+              tabs.findIndex(t => t.groupOrder === tab.groupOrder) === idx;
+
             return (
-              <div 
-                key={tab.id}
+              <React.Fragment key={tab.id}>
+                {/* Group label — shown at the start of each named group */}
+                {isGroupStart && tab.groupName && (
+                  <div className="flex items-center gap-1 ml-2 mr-0.5 select-none flex-shrink-0">
+                    <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: tab.groupColor ?? '#555' }} />
+                    <span className="text-[10px] font-bold uppercase tracking-widest text-white/30 whitespace-nowrap">
+                      {tab.groupName}
+                    </span>
+                  </div>
+                )}
+
+                <div
                 onClick={() => setActiveTabId(tab.id)}
                 className={`flex flex-col justify-center px-3 py-1 rounded-t-md text-sm cursor-pointer transition-all group min-w-[140px] max-w-[220px] relative border-t-2 ${activeTabId === tab.id ? 'bg-[#0a0a0a] text-white border-x border-white/5' : 'text-white/40 hover:bg-white/5 border-transparent'} ${isSameGroup ? 'ml-0' : 'ml-1'}`}
                 style={{ borderTopColor: tab.groupColor || 'transparent' }}
@@ -1372,6 +1362,7 @@ export default function App() {
                   </div>
                 </div>
               </div>
+              </React.Fragment>
             );
           })}
           <button

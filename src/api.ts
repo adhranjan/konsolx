@@ -35,6 +35,7 @@ export const workspacesApi = {
   create: (data: Workspace)   => request<{ success: boolean }>("/api/workspaces", { method: "POST", body: JSON.stringify(data) }),
   update: (data: Workspace)   => request<{ success: boolean }>(`/api/workspaces/${data.id}`, { method: "PUT", body: JSON.stringify(data) }),
   delete: (id: string)        => request<{ success: boolean }>(`/api/workspaces/${id}`, { method: "DELETE" }),
+  open:   (id: string)        => request<TerminalState[]>(`/api/workspaces/${id}/open`, { method: "POST" }),
 };
 
 // ── Environments ──────────────────────────────────────────────────────────────
@@ -65,6 +66,7 @@ export interface TerminalState {
   groupColor?: string;
   envId?:      string;
   vars:        Record<string, string>;
+  groupOrder?: number;
   sortOrder?:  number;
 }
 

@@ -4,6 +4,7 @@ import fs from "fs";
 import path from "path";
 import crypto from "crypto";
 import { OSInterface, SpawnShellOptions } from "./os-interface.js";
+import { terminalSessionDb } from "./database/terminal-sessions.js";
 
 // ── Stale PID tracking ───────────────────────────────────────────────────────
 // PIDs are written to DATA_DIR/shell_pids.json so they survive a Docker restart.
@@ -45,7 +46,8 @@ export interface TerminalSession {
   groupColor?: string;
   envId?:      string;
   vars:        Record<string, string>;  // ad-hoc per-terminal overrides
-  sortOrder?:  number;
+  groupOrder?: number;  // which batch this session belongs to (for ordering groups)
+  sortOrder?:  number;  // position within the group
 }
 
 const BUFFER_MAX = 50_000;
@@ -100,6 +102,7 @@ export interface CreateSessionOptions extends SpawnShellOptions {
   groupColor?: string;
   envId?:      string;
   vars?:       Record<string, string>;
+  groupOrder?: number;
   sortOrder?:  number;
 }
 
@@ -121,12 +124,14 @@ export function createSession(opts: CreateSessionOptions): TerminalSession {
     groupColor: opts.groupColor,
     envId:      opts.envId,
     vars:       opts.vars ?? {},
+    groupOrder: opts.groupOrder,
     sortOrder:  opts.sortOrder,
   };
 
   sessions.set(sessionId, session);
   trackedPids.add(shell.pid);
   flushPids();
+  terminalSessionDb.upsert(session);
 
   shell.stdout.on("data", (data: Buffer) => {
     const text = data.toString();
@@ -166,6 +171,7 @@ export async function deleteSession(sessionId: string): Promise<void> {
   sessions.delete(sessionId);
   trackedPids.delete(session.pid);
   flushPids();
+  terminalSessionDb.delete(sessionId);
 
   const pid = session.pid;
 

@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { listWorkspaces, saveWorkspace, deleteWorkspace } from "../services/workspaces.js";
+import { listWorkspaces, saveWorkspace, deleteWorkspace, openWorkspace } from "../services/workspaces.js";
 
 const router = Router();
 
@@ -22,6 +22,16 @@ router.put("/workspaces/:id", (req, res) => {
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+  }
+});
+
+router.post("/workspaces/:id/open", (req, res) => {
+  try {
+    const terminals = openWorkspace(req.params.id);
+    res.json(terminals);
+  } catch (err: any) {
+    const status = err.message === "Workspace not found" ? 404 : 500;
+    res.status(status).json({ error: err.message });
   }
 });
 

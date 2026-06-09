@@ -5,6 +5,18 @@ const dataDir = process.env.DATA_DIR || ".";
 export const db = new Database(path.join(dataDir, "terminal.db"));
 
 db.exec(`
+  CREATE TABLE IF NOT EXISTS terminal_sessions (
+    session_id   TEXT PRIMARY KEY,
+    pid          INTEGER NOT NULL,
+    cwd          TEXT NOT NULL,
+    title        TEXT,
+    group_name   TEXT,
+    group_color  TEXT,
+    group_order  INTEGER,
+    sort_order   INTEGER,
+    env_id       TEXT,
+    vars         TEXT NOT NULL DEFAULT '{}'
+  );
   CREATE TABLE IF NOT EXISTS workspaces (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,

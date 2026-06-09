@@ -10,6 +10,7 @@ import {
   TerminalSession,
 } from "../sessions.js";
 import { environmentDb } from "../database/environments.js";
+import { terminalSessionDb } from "../database/terminal-sessions.js";
 
 export interface TerminalState {
   sessionId:   string;
@@ -22,6 +23,7 @@ export interface TerminalState {
   groupColor?: string;
   envId?:      string;
   vars:        Record<string, string>;
+  groupOrder?: number;
   sortOrder?:  number;
 }
 
@@ -36,6 +38,7 @@ export interface CreateTerminalOptions {
   groupColor?:     string;
   envId?:          string;
   vars?:           Record<string, string>;
+  groupOrder?:     number;
   sortOrder?:      number;
 }
 
@@ -47,6 +50,7 @@ export function updateTerminalMeta(sessionId: string, meta: Partial<Pick<Termina
   if (meta.groupColor !== undefined) session.groupColor = meta.groupColor;
   if (meta.envId      !== undefined) session.envId      = meta.envId;
   if (meta.sortOrder  !== undefined) session.sortOrder  = meta.sortOrder;
+  terminalSessionDb.upsert(session);
   return true;
 }
 
@@ -61,13 +65,18 @@ const toState = async (sessionId: string, s: typeof sessions extends Map<string,
   groupColor:  s.groupColor,
   envId:       s.envId,
   vars:        s.vars,
+  groupOrder:  s.groupOrder,
   sortOrder:   s.sortOrder,
 });
 
 export async function listTerminals(): Promise<TerminalState[]> {
   const entries = [...sessions.entries()];
   const states  = await Promise.all(entries.map(([id, s]) => toState(id, s)));
-  return states.sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
+  return states.sort((a, b) => {
+    const go = (a.groupOrder ?? 0) - (b.groupOrder ?? 0);
+    if (go !== 0) return go;
+    return (a.sortOrder ?? 0) - (b.sortOrder ?? 0);
+  });
 }
 
 export async function getTerminal(sessionId: string): Promise<TerminalState | null> {
@@ -145,6 +154,7 @@ export async function applyEnvToTerminal(sessionId: string, envId: string): Prom
   });
 
   session.envId = envId;
+  terminalSessionDb.upsert(session);
 }
 
 /** Merge patch vars into the session — empty-string value removes the key. Injects into live shell. */
@@ -172,11 +182,13 @@ export function patchTerminalVars(sessionId: string, patch: Record<string, strin
     .join("\n");
 
   if (exports) session.shell.stdin.write(`${exports}\n`);
+  terminalSessionDb.upsert(session);
 }
 
 export async function killAllTerminals(): Promise<void> {
   const ids = [...sessions.keys()];
   await Promise.all(ids.map(id => deleteSession(id)));
+  terminalSessionDb.deleteAll();
 }
 
 export { deleteSession as killTerminal, attachClient, detachClient };

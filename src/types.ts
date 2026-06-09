@@ -24,10 +24,11 @@ export interface Tab {
   title: string;
   cwd: string;
   shell?: string;
-  envId?: string;
-  vars:   Record<string, string>;
-  groupName?: string;
+  envId?:      string;
+  vars:        Record<string, string>;
+  groupName?:  string;
   groupColor?: string;
+  groupOrder?: number;
   initialCommand?: string;
 }
 
