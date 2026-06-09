@@ -281,6 +281,13 @@ export default function App() {
     return () => window.removeEventListener('beforeunload', handleBeforeUnload);
   }, [tabs.length]);
 
+  // Update tab title to reflect active session count
+  useEffect(() => {
+    document.title = tabs.length > 0
+      ? `● Konsolx (${tabs.length} session${tabs.length === 1 ? '' : 's'})`
+      : 'Konsolx';
+  }, [tabs.length]);
+
   const handleTabWheel = (e: React.WheelEvent) => {
     if (tabs.length <= 1) return;
     
