@@ -1,4 +1,5 @@
 import express from "express";
+import { killAllTerminals } from "./services/terminals.js";
 import { createServer } from "http";
 import { WebSocketServer, WebSocket } from "ws";
 import { createServer as createViteServer } from "vite";
@@ -82,4 +83,15 @@ export async function startServer() {
   server.listen(PORT, "0.0.0.0", () => {
     console.log(`[konsolx] Server running on http://localhost:${PORT}`);
   });
+
+  // Graceful shutdown — kill all terminal sessions before exiting
+  const shutdown = async (signal: string) => {
+    console.log(`[konsolx] ${signal} received — killing all sessions...`);
+    await killAllTerminals();
+    server.close(() => process.exit(0));
+    setTimeout(() => process.exit(1), 5000); // force exit if close hangs
+  };
+
+  process.on("SIGTERM", () => shutdown("SIGTERM"));
+  process.on("SIGINT",  () => shutdown("SIGINT"));
 }

@@ -25,9 +25,9 @@ export interface Tab {
   cwd: string;
   shell?: string;
   envId?: string;
+  vars:   Record<string, string>;
   groupName?: string;
   groupColor?: string;
-  localVariables?: EnvVar[];
   initialCommand?: string;
 }
 

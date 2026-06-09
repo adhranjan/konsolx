@@ -44,6 +44,7 @@ export interface TerminalSession {
   groupName?:  string;
   groupColor?: string;
   envId?:      string;
+  vars:        Record<string, string>;  // ad-hoc per-terminal overrides
   sortOrder?:  number;
 }
 
@@ -98,6 +99,7 @@ export interface CreateSessionOptions extends SpawnShellOptions {
   groupName?:  string;
   groupColor?: string;
   envId?:      string;
+  vars?:       Record<string, string>;
   sortOrder?:  number;
 }
 
@@ -118,6 +120,7 @@ export function createSession(opts: CreateSessionOptions): TerminalSession {
     groupName:  opts.groupName,
     groupColor: opts.groupColor,
     envId:      opts.envId,
+    vars:       opts.vars ?? {},
     sortOrder:  opts.sortOrder,
   };
 
@@ -213,5 +216,5 @@ export function detachClient(sessionId: string, ws: WebSocket): void {
   const session = sessions.get(sessionId);
   if (!session) return;
   session.clients.delete(ws);
-  if (session.clients.size === 0) deleteSession(sessionId);
+  // Sessions persist even with no connected clients — explicit kill required
 }

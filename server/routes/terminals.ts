@@ -6,10 +6,12 @@ import {
   getTerminal,
   spawnTerminal,
   killTerminal,
+  killAllTerminals,
   attachClient,
   detachClient,
   updateTerminalMeta,
   applyEnvToTerminal,
+  patchTerminalVars,
 } from "../services/terminals.js";
 import { sessions } from "../sessions.js";
 
@@ -40,6 +42,16 @@ router.put("/terminals/:id", (req, res) => {
   res.json({ success: true });
 });
 
+router.patch("/terminals/:id/vars", (req, res) => {
+  try {
+    patchTerminalVars(req.params.id, req.body);
+    res.json({ success: true });
+  } catch (err: any) {
+    const status = err.message === "Session not found" ? 404 : 500;
+    res.status(status).json({ error: err.message });
+  }
+});
+
 router.put("/terminals/:id/env/:envId", async (req, res) => {
   try {
     await applyEnvToTerminal(req.params.id, req.params.envId);
@@ -51,6 +63,11 @@ router.put("/terminals/:id/env/:envId", async (req, res) => {
       500;
     res.status(status).json({ error: err.message });
   }
+});
+
+router.delete("/terminals", async (_req, res) => {
+  await killAllTerminals();
+  res.json({ success: true });
 });
 
 router.delete("/terminals/:id", async (req, res) => {

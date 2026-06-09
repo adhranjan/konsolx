@@ -21,6 +21,7 @@ export interface TerminalState {
   groupName?:  string;
   groupColor?: string;
   envId?:      string;
+  vars:        Record<string, string>;
   sortOrder?:  number;
 }
 
@@ -33,7 +34,8 @@ export interface CreateTerminalOptions {
   title?:          string;
   groupName?:      string;
   groupColor?:     string;
-  envId?:          string;   // server resolves vars from DB
+  envId?:          string;
+  vars?:           Record<string, string>;
   sortOrder?:      number;
 }
 
@@ -58,6 +60,7 @@ const toState = async (sessionId: string, s: typeof sessions extends Map<string,
   groupName:   s.groupName,
   groupColor:  s.groupColor,
   envId:       s.envId,
+  vars:        s.vars,
   sortOrder:   s.sortOrder,
 });
 
@@ -144,14 +147,46 @@ export async function applyEnvToTerminal(sessionId: string, envId: string): Prom
   session.envId = envId;
 }
 
+/** Merge patch vars into the session — empty-string value removes the key. Injects into live shell. */
+export function patchTerminalVars(sessionId: string, patch: Record<string, string>): void {
+  const session = sessions.get(sessionId);
+  if (!session) throw new Error("Session not found");
+  if (!session.shell.stdin.writable) throw new Error("Shell stdin not writable");
+
+  // Merge: remove keys with empty value, set the rest
+  const updated = { ...session.vars };
+  for (const [key, value] of Object.entries(patch)) {
+    if (value === "") delete updated[key];
+    else updated[key] = value;
+  }
+  session.vars = updated;
+
+  // Inject only the patched keys into the live shell
+  const exports = Object.entries(patch)
+    .filter(([key]) => key.trim())
+    .map(([key, value]) =>
+      value === ""
+        ? `unset ${key}`
+        : `export ${key}=${JSON.stringify(value)}`
+    )
+    .join("\n");
+
+  if (exports) session.shell.stdin.write(`${exports}\n`);
+}
+
+export async function killAllTerminals(): Promise<void> {
+  const ids = [...sessions.keys()];
+  await Promise.all(ids.map(id => deleteSession(id)));
+}
+
 export { deleteSession as killTerminal, attachClient, detachClient };
 
 // ── Internal ─────────────────────────────────────────────────────────────────
 
 function sendSetupCommands(session: TerminalSession, opts: CreateTerminalOptions): void {
-  const { cwd, envId, initialCommand } = opts;
+  const { cwd, envId, vars, initialCommand } = opts;
 
-  // Resolve env vars from DB if envId provided
+  // 1. Resolve envId vars from DB
   let envExports = "";
   if (envId) {
     const env = environmentDb.list().find(e => e.id === envId);
@@ -163,7 +198,15 @@ function sendSetupCommands(session: TerminalSession, opts: CreateTerminalOptions
     }
   }
 
-  const hasSetup = envExports || (cwd && path.isAbsolute(cwd)) || initialCommand;
+  // 2. vars override envId (injected after)
+  const varExports = vars && Object.keys(vars).length > 0
+    ? Object.entries(vars)
+        .filter(([key]) => key.trim())
+        .map(([key, value]) => `export ${key}=${JSON.stringify(value)}`)
+        .join("\n")
+    : "";
+
+  const hasSetup = envExports || varExports || (cwd && path.isAbsolute(cwd)) || initialCommand;
   if (!hasSetup) return;
 
   let promptDetected = false;
@@ -173,6 +216,7 @@ function sendSetupCommands(session: TerminalSession, opts: CreateTerminalOptions
   const onPrompt = () => {
     if (!session.shell.stdin.writable) return;
     if (envExports) session.shell.stdin.write(`${envExports}\n`);
+    if (varExports) session.shell.stdin.write(`${varExports}\n`);
     if (cwd && path.isAbsolute(cwd)) session.shell.stdin.write(`cd "${cwd}"\n`);
     if (initialCommand) session.shell.stdin.write(`${initialCommand}\n`);
   };
@@ -195,6 +239,7 @@ function sendSetupCommands(session: TerminalSession, opts: CreateTerminalOptions
     if (!promptDetected && session.shell.stdin.writable) {
       promptDetected = true;
       if (envExports) session.shell.stdin.write(`${envExports}\n`);
+      if (varExports) session.shell.stdin.write(`${varExports}\n`);
       if (cwd && path.isAbsolute(cwd)) session.shell.stdin.write(`cd "${cwd}"\n`);
       if (initialCommand) session.shell.stdin.write(`${initialCommand}\n`);
     }

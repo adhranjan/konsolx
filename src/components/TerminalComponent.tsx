@@ -15,6 +15,7 @@ interface TerminalComponentProps {
   groupName?:      string;
   groupColor?:     string;
   envId?:          string;
+  vars?:           Record<string, string>;
   sortOrder?:      number;
   onClose:         () => void;
   onSessionReady?: (sessionId: string) => void;
@@ -24,7 +25,7 @@ interface TerminalComponentProps {
 
 const TerminalComponent: React.FC<TerminalComponentProps> = ({
   cwd, shell, initialCommand, isActive,
-  sessionId: existingSessionId, title, groupName, groupColor, envId, sortOrder,
+  sessionId: existingSessionId, title, groupName, groupColor, envId, vars, sortOrder,
   onClose, onSessionReady, onSessionEnd, onInputReady,
 }) => {
   const terminalRef    = useRef<HTMLDivElement>(null);
@@ -68,7 +69,7 @@ const TerminalComponent: React.FC<TerminalComponentProps> = ({
 
     const sessionPromise = useExisting
       ? Promise.resolve({ sessionId: existingSessionId! })
-      : terminalsApi.create({ cwd, shell, cols: term.cols, rows: term.rows, initialCommand, title, groupName, groupColor, envId, sortOrder });
+      : terminalsApi.create({ cwd, shell, cols: term.cols, rows: term.rows, initialCommand, title, groupName, groupColor, envId, vars, sortOrder });
 
     sessionPromise.then(({ sessionId }) => {
       if (cancelled) {
@@ -159,35 +160,21 @@ const TerminalComponent: React.FC<TerminalComponentProps> = ({
     if (terminalRef.current) resizeObserver.observe(terminalRef.current);
     window.addEventListener('resize', handleResize);
 
-    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
-      if (wsRef.current?.readyState === WebSocket.OPEN) {
-        e.preventDefault();
-        e.returnValue = '';
-        return '';
-      }
-    };
-    window.addEventListener('beforeunload', handleBeforeUnload);
+    // No beforeunload warning — sessions persist on the server after browser close
 
     // ── Cleanup ──────────────────────────────────────────────────────────────
     return () => {
       cancelled = true;
       window.removeEventListener('resize', handleResize);
-      window.removeEventListener('beforeunload', handleBeforeUnload);
       resizeObserver.disconnect();
       terminalRef.current?.removeEventListener('keydown', handleTerminalCopy, true);
       onSessionEnd?.();
 
+      // Just close the WebSocket — session keeps running on the server
       const ws = wsRef.current;
       wsRef.current = null;
       if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) {
         ws.close();
-      }
-
-      // Kill session via HTTP on unmount
-      const sid = sessionIdRef.current;
-      if (sid) {
-        sessionIdRef.current = null;
-        terminalsApi.delete(sid).catch(() => {});
       }
 
       term.dispose();

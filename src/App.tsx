@@ -25,7 +25,8 @@ import {
   Copy,
   Zap,
   AlertTriangle,
-  ExternalLink
+  ExternalLink,
+  PowerOff
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import TerminalComponent from './components/TerminalComponent';
@@ -64,7 +65,7 @@ export default function App() {
   const [wsName, setWsName] = useState('');
   const [wsBasePath, setWsBasePath] = useState('');
   const [wsDirs, setWsDirs] = useState<{ name: string; path: string }[]>([]);
-  const [tabLocalVars, setTabLocalVars] = useState<EnvVar[]>([]);
+  const [tabVars, setTabVars] = useState<Record<string, string>>({});
   const [expandedWorkspaces, setExpandedWorkspaces] = useState<Set<string>>(new Set());
   const [collapsedEnvGroups, setCollapsedEnvGroups] = useState<Set<string>>(new Set());
   const [collapsedQcGroups, setCollapsedQcGroups] = useState<Set<string>>(new Set());
@@ -124,6 +125,30 @@ export default function App() {
   const [serverConfig, setServerConfig] = useState<{ useHostShell: boolean; useSshShell: boolean; platform: string; hostOs: string | null; isDev: boolean; updateAvailable: string | null } | null>(null);
   const [updateDismissed, setUpdateDismissed] = useState(false);
 
+  const syncTerminalTabs = () => {
+    terminalsApi.list().then(sessions => {
+      if (sessions.length === 0) {
+        setTabs([]);
+        setActiveTabId(null);
+        return;
+      }
+      setTabs(prev => {
+        const updated = sessions.map(s => {
+          const existing = prev.find(t => t.sessionId === s.sessionId);
+          return existing
+            ? { ...existing, title: s.title ?? existing.title, cwd: s.cwd, groupName: s.groupName, groupColor: s.groupColor, envId: s.envId }
+            : { id: crypto.randomUUID(), sessionId: s.sessionId, title: s.title ?? s.cwd.split('/').pop() ?? 'Terminal', cwd: s.cwd, groupName: s.groupName, groupColor: s.groupColor, envId: s.envId, vars: s.vars ?? {} };
+        });
+        // Fix active tab inside the same setState to avoid stale reference
+        setActiveTabId(currentActive => {
+          const activeStillExists = updated.find(t => t.id === currentActive);
+          return activeStillExists ? currentActive : (updated[0]?.id ?? null);
+        });
+        return updated;
+      });
+    }).catch(() => {});
+  };
+
   // Fetch initial data + restore tabs from previous session
   useEffect(() => {
     workspacesApi.list().then(setWorkspaces);
@@ -135,21 +160,16 @@ export default function App() {
     });
     configApi.get().then(setServerConfig);
 
-    // Restore tabs from server sessions
-    terminalsApi.list().then(sessions => {
-      if (sessions.length === 0) return;
-      const restored: Tab[] = sessions.map(s => ({
-        id:         crypto.randomUUID(),
-        sessionId:  s.sessionId,
-        title:      s.title      ?? s.cwd.split('/').pop() ?? 'Terminal',
-        cwd:        s.cwd,
-        groupName:  s.groupName,
-        groupColor: s.groupColor,
-        envId:      s.envId,
-      }));
-      setTabs(restored);
-      setActiveTabId(restored[0].id);
-    }).catch(() => {});
+    syncTerminalTabs();
+  }, []);
+
+  // Refetch terminals when the browser tab becomes visible again
+  const syncRef = useRef(syncTerminalTabs);
+  syncRef.current = syncTerminalTabs;
+  useEffect(() => {
+    const onVisible = () => { if (document.visibilityState === 'visible') syncRef.current(); };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => document.removeEventListener('visibilitychange', onVisible);
   }, []);
 
   // Block DevTools in release mode
@@ -208,6 +228,7 @@ export default function App() {
       cwd, 
       shell: defaultShell || undefined,
       envId: undefined,
+      vars: {},
       groupName: effectiveGroupName,
       groupColor: effectiveGroupName ? getGroupColor(effectiveGroupName) : undefined,
       initialCommand
@@ -217,8 +238,9 @@ export default function App() {
   };
 
   const doCloseTab = (id: string) => {
-    const sessionId = tabSessionsRef.current.get(id);
-    if (sessionId) terminalsApi.delete(sessionId).catch(() => {});
+    // Detach UI only — session keeps running on the server
+    tabSessionsRef.current.delete(id);
+    tabInputsRef.current.delete(id);
     setTabs(prev => {
       const remainingTabs = prev.filter(t => t.id !== id);
       if (activeTabId === id) {
@@ -229,7 +251,21 @@ export default function App() {
   };
 
   const closeTab = (id: string) => {
-    confirm('Close this terminal?', () => doCloseTab(id));
+    confirm('Close and terminate this terminal?', () => {
+      const sessionId = tabSessionsRef.current.get(id);
+      if (sessionId) terminalsApi.delete(sessionId).catch(() => {});
+      doCloseTab(id);
+    });
+  };
+
+  const terminateAllSessions = () => {
+    confirm('Terminate all terminal sessions?', async () => {
+      await terminalsApi.killAll();
+      setTabs([]);
+      setActiveTabId(null);
+      tabSessionsRef.current.clear();
+      tabInputsRef.current.clear();
+    });
   };
 
   // Prevent accidental browser tab closure
@@ -310,6 +346,7 @@ export default function App() {
         cwd: resolvedPath, 
         shell: defaultShell || undefined,
         envId: undefined,
+        vars: {},
         groupName: ws.name,
         groupColor
       });
@@ -499,7 +536,7 @@ export default function App() {
 
   const openTabSettingsModal = (tab: Tab) => {
     setEditingTabSettings(tab);
-    setTabLocalVars(tab.localVariables || []);
+    setTabVars(tab.vars ?? {});
     setIsTabSettingsModalOpen(true);
   };
 
@@ -569,16 +606,15 @@ export default function App() {
 
   const handleSaveTabSettings = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!editingTabSettings) return;
-
-    const validVars = tabLocalVars.filter(v => v.key.trim() !== '');
-    setTabs(prev => prev.map(t => t.id === editingTabSettings.id ? { 
-      ...t, 
-      localVariables: validVars
-    } : t));
     setIsTabSettingsModalOpen(false);
     setEditingTabSettings(null);
-    setTabLocalVars([]);
+    setTabVars({});
+  };
+
+  // Called on blur (user leaves a field) — update tab state + fire patch
+  const patchVars = (tabId: string, sessionId: string | undefined, vars: Record<string, string>) => {
+    setTabs(prev => prev.map(t => t.id === tabId ? { ...t, vars } : t));
+    if (sessionId) terminalsApi.patchVars(sessionId, vars).catch(() => {});
   };
 
   const deleteWorkspace = (id: string) => {
@@ -734,7 +770,7 @@ export default function App() {
   const activeTab = tabs.find(t => t.id === activeTabId);
   const currentEnvId = activeTab?.envId;
   const activeEnv = environments.find(e => e.id === currentEnvId);
-  const localVarsCount = activeTab?.localVariables?.length || 0;
+  const localVarsCount = Object.keys(activeTab?.vars ?? {}).length;
 
   // Keyboard Shortcuts
   useEffect(() => {
@@ -1302,12 +1338,22 @@ export default function App() {
               </div>
             );
           })}
-          <button 
+          <button
             onClick={() => addTab()}
             className="p-1.5 hover:bg-white/5 rounded text-white/40 hover:text-white ml-2"
+            title="New Terminal"
           >
             <Plus size={16} />
           </button>
+          {tabs.length > 0 && (
+            <button
+              onClick={terminateAllSessions}
+              className="p-1.5 hover:bg-red-500/10 rounded text-white/20 hover:text-red-400 ml-1 transition-colors"
+              title="Terminate All Sessions"
+            >
+              <PowerOff size={14} />
+            </button>
+          )}
         </div>
 
         {/* Active Env Indicator */}
@@ -1349,6 +1395,7 @@ export default function App() {
                   groupName={tab.groupName}
                   groupColor={tab.groupColor}
                   envId={tab.envId}
+                  vars={tab.vars}
                   sortOrder={tabs.indexOf(tab)}
                   onClose={() => closeTab(tab.id)}
                   onSessionReady={(sessionId) => {
@@ -1662,53 +1709,62 @@ export default function App() {
           <div>
             <div className="flex items-center justify-between mb-2">
               <label className="block text-xs font-bold text-white/40 uppercase">Local Overrides & Variables</label>
-              <div className="flex items-center gap-2">
-                <button 
-                  type="button"
-                  onClick={() => setTabLocalVars(prev => [...prev, { key: '', value: '', isPrivate: false }])}
-                  className="text-[10px] flex items-center gap-1 text-emerald-500 hover:text-emerald-400 transition-colors uppercase font-bold tracking-wider"
-                >
-                  <Plus size={10} /> Add New
-                </button>
-              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setTabVars(prev => ({ ...prev, '': '' }));
+                  // No patch yet — wait for user to fill in key/value and blur
+                }}
+                className="text-[10px] flex items-center gap-1 text-emerald-500 hover:text-emerald-400 transition-colors uppercase font-bold tracking-wider"
+              >
+                <Plus size={10} /> Add New
+              </button>
             </div>
-            
+
             <div className="space-y-2 max-h-[200px] overflow-y-auto pr-1 custom-scrollbar mb-4">
-              {tabLocalVars.map((v, index) => (
+              {Object.entries(tabVars).map(([key, value], index) => (
                 <div key={index} className="flex items-center gap-2 group">
-                  <input 
+                  <input
                     type="text"
-                    value={v.key}
-                    onChange={e => setTabLocalVars(prev => prev.map((item, i) => i === index ? { ...item, key: e.target.value } : item))}
+                    defaultValue={key}
+                    onBlur={e => {
+                      const newKey = e.target.value.trim();
+                      if (newKey === key) return;
+                      const entries = Object.entries(tabVars).filter(([k]) => k !== key);
+                      const newVars = Object.fromEntries([...entries, [newKey, value]]);
+                      setTabVars(newVars);
+                      if (editingTabSettings) patchVars(editingTabSettings.id, editingTabSettings.sessionId, newVars);
+                    }}
                     placeholder="KEY"
                     className="flex-1 bg-white/5 border border-white/10 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:border-emerald-500/50 transition-colors font-mono"
                   />
-                  <div className="flex-[1.5] relative">
-                    <input 
-                      type={v.isPrivate ? "password" : "text"}
-                      value={v.value}
-                      onChange={e => setTabLocalVars(prev => prev.map((item, i) => i === index ? { ...item, value: e.target.value } : item))}
-                      placeholder="VALUE"
-                      className="w-full bg-white/5 border border-white/10 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:border-emerald-500/50 transition-colors font-mono pr-8"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setTabLocalVars(prev => prev.map((item, i) => i === index ? { ...item, isPrivate: !item.isPrivate } : item))}
-                      className="absolute right-2 top-1/2 -translate-y-1/2 text-white/20 hover:text-white transition-colors"
-                    >
-                      {v.isPrivate ? <Lock size={12} /> : <Unlock size={12} />}
-                    </button>
-                  </div>
-                  <button 
+                  <input
+                    type="text"
+                    defaultValue={value}
+                    onChange={e => setTabVars(prev => ({ ...prev, [key]: e.target.value }))}
+                    onBlur={e => {
+                      const newVars = { ...tabVars, [key]: e.target.value };
+                      setTabVars(newVars);
+                      if (editingTabSettings) patchVars(editingTabSettings.id, editingTabSettings.sessionId, newVars);
+                    }}
+                    placeholder="VALUE"
+                    className="flex-[1.5] bg-white/5 border border-white/10 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:border-emerald-500/50 transition-colors font-mono"
+                  />
+                  <button
                     type="button"
-                    onClick={() => setTabLocalVars(prev => prev.filter((_, i) => i !== index))}
+                    onClick={() => {
+                      const newVars = Object.fromEntries(Object.entries(tabVars).filter(([k]) => k !== key));
+                      setTabVars(newVars);
+                      // Send empty string to trigger unset on server
+                      if (editingTabSettings) patchVars(editingTabSettings.id, editingTabSettings.sessionId, { ...newVars, [key]: '' });
+                    }}
                     className="p-1.5 text-white/20 hover:text-red-400 transition-colors opacity-0 group-hover:opacity-100"
                   >
                     <Trash2 size={14} />
                   </button>
                 </div>
               ))}
-              {tabLocalVars.length === 0 && (
+              {Object.keys(tabVars).length === 0 && (
                 <div className="text-center py-4 text-white/20 text-xs italic border border-dashed border-white/5 rounded-lg">
                   No local overrides defined.
                 </div>
@@ -1718,16 +1774,17 @@ export default function App() {
             <div className="border-t border-white/5 pt-4">
               <label className="block text-xs font-bold text-white/40 uppercase mb-2">Quick Add from Global Environments</label>
               <div className="grid grid-cols-2 gap-2 max-h-[150px] overflow-y-auto pr-1 custom-scrollbar">
-                {environments.flatMap(env => 
+                {environments.flatMap(env =>
                   (Array.isArray(env.variables) ? env.variables : []).map(v => ({ ...v, envName: env.name }))
                 ).map((v, idx) => (
                   <button
                     key={idx}
                     type="button"
                     onClick={() => {
-                      if (!tabLocalVars.some(lv => lv.key === v.key)) {
-                        setTabLocalVars(prev => [...prev, { key: v.key, value: v.value, isPrivate: v.isPrivate }]);
-                      }
+                      if (tabVars[v.key] !== undefined) return;
+                      const newVars = { ...tabVars, [v.key]: v.value };
+                      setTabVars(newVars);
+                      if (editingTabSettings) patchVars(editingTabSettings.id, editingTabSettings.sessionId, newVars);
                     }}
                     className="text-left px-2 py-1.5 rounded bg-white/5 hover:bg-emerald-500/10 border border-white/5 hover:border-emerald-500/30 transition-all group flex flex-col"
                   >

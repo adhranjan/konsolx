@@ -64,6 +64,7 @@ export interface TerminalState {
   groupName?:  string;
   groupColor?: string;
   envId?:      string;
+  vars:        Record<string, string>;
   sortOrder?:  number;
 }
 
@@ -76,7 +77,8 @@ export interface CreateTerminalOptions {
   title?:          string;
   groupName?:      string;
   groupColor?:     string;
-  envId?:          string;     // server resolves vars from DB
+  envId?:          string;
+  vars?:           Record<string, string>;
   sortOrder?:      number;
 }
 
@@ -87,7 +89,9 @@ export const terminalsApi = {
   update: (id: string, meta: Partial<Pick<TerminalState, 'title' | 'groupName' | 'groupColor' | 'envId' | 'sortOrder'>>) =>
     request<{ success: boolean }>(`/api/terminals/${id}`, { method: "PUT", body: JSON.stringify(meta) }),
   delete:   (id: string)                   => request<{ success: boolean }>(`/api/terminals/${id}`, { method: "DELETE" }),
-  applyEnv: (id: string, envId: string)   => request<{ success: boolean }>(`/api/terminals/${id}/env/${envId}`, { method: "PUT" }),
+  killAll:   ()                                      => request<{ success: boolean }>("/api/terminals", { method: "DELETE" }),
+  patchVars: (id: string, vars: Record<string, string>) => request<{ success: boolean }>(`/api/terminals/${id}/vars`, { method: "PATCH", body: JSON.stringify(vars) }),
+  applyEnv:  (id: string, envId: string)             => request<{ success: boolean }>(`/api/terminals/${id}/env/${envId}`, { method: "PUT" }),
 };
 
 // ── Kill Port ─────────────────────────────────────────────────────────────────
