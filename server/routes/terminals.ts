@@ -94,18 +94,6 @@ export function handleWebSocket(ws: WebSocket & { isAlive?: boolean }, req: Inco
         ws.send(JSON.stringify({ type: "session", sessionId }));
       }
 
-    } else if (msg.type === "init") {
-      // Backward-compat: create + attach in one step
-      try {
-        const session = spawnTerminal(msg);
-        sessionId = session.sessionId;
-        attachClient(sessionId, ws);
-        ws.send(JSON.stringify({ type: "session", sessionId }));
-      } catch (err: any) {
-        ws.send(JSON.stringify({ type: "output", data: `\r\n[Error: ${err.message}]\r\n` }));
-        ws.close();
-      }
-
     } else if (msg.type === "input" && sessionId) {
       const session = sessions.get(sessionId);
       if (session?.shell.stdin.writable) session.shell.stdin.write(msg.data);

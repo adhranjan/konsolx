@@ -44,6 +44,7 @@ export default function App() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [sidebarWidth, setSidebarWidth] = useState(260);
   const isResizing = useRef(false);
+  const importInputRef = useRef<HTMLInputElement>(null);
   const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
   const [commandSearch, setCommandSearch] = useState('');
 
@@ -789,7 +790,7 @@ export default function App() {
     { id: 'new-ws', name: 'New Workspace', icon: Folder, action: () => setIsWsModalOpen(true) },
     { id: 'new-env', name: 'New Environment', icon: Layers, action: () => setIsEnvModalOpen(true) },
     { id: 'toggle-sidebar', name: 'Toggle Sidebar', icon: ChevronRight, action: () => setIsSidebarOpen(!isSidebarOpen) },
-    { id: 'import', name: 'Import Config', icon: Upload, action: () => document.getElementById('import-input')?.click() },
+    { id: 'import', name: 'Import Config', icon: Upload, action: () => importInputRef.current?.click() },
   ];
 
   const filteredCommands = commands.filter(c => 
@@ -905,7 +906,7 @@ export default function App() {
             </button>
             <label className="p-1.5 hover:bg-white/5 rounded text-white/40 hover:text-white transition-colors cursor-pointer" title="Import Backup">
               <Upload size={16} />
-              <input type="file" accept=".json" onChange={handleImport} className="hidden" />
+              <input ref={importInputRef} type="file" accept=".json" onChange={handleImport} className="hidden" />
             </label>
             <button onClick={() => setIsSidebarOpen(false)} className="p-1.5 hover:bg-white/5 rounded text-white/40 hover:text-white transition-colors">
               <ChevronRight size={16} />
@@ -960,8 +961,8 @@ export default function App() {
                 >
                   <Download size={14} />
                 </button>
-                <button 
-                  onClick={() => document.getElementById('global-import-input')?.click()} 
+                <button
+                  onClick={() => importInputRef.current?.click()}
                   className="p-1 hover:bg-white/5 rounded text-white/40 hover:text-blue-400 transition-colors"
                   title="Import Quick Commands"
                 >
