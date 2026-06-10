@@ -7,7 +7,7 @@ import fs from "fs";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT      = path.resolve(__dirname, "..");
 
-const PORT = Number(process.env.PORT ?? 8016);
+const PORT = Number(process.env.KONSOLX_PORT ?? 8016);
 
 // Set consistent data path before anything else — prevents falling back to "Electron" folder
 app.setName("Konsolx");
@@ -55,7 +55,7 @@ process.env.USE_HOST_SHELL = "false";  // Running natively — no nsenter/Docker
 process.env.USE_SSH_SHELL  = "false";
 process.env.HOST_USER      = process.env.USER ?? process.env.USERNAME ?? "";
 process.env.HOST_OS        = process.platform === "darwin" ? "mac" : "linux";
-process.env.PORT           = String(PORT);
+process.env.KONSOLX_PORT           = String(PORT);
 
 // ── Wait for Express to be ready ─────────────────────────────────────────────
 function waitForServer(port: number, retries = 40): Promise<void> {
@@ -91,7 +91,7 @@ function createWindow() {
     },
   });
 
-  const port = Number(process.env.PORT ?? PORT);
+  const port = Number(process.env.KONSOLX_PORT ?? PORT);
   win.loadURL(`http://localhost:${port}`);
 
   win.webContents.setWindowOpenHandler(({ url }) => {
@@ -105,7 +105,7 @@ function createWindow() {
 // ── App lifecycle ─────────────────────────────────────────────────────────────
 app.whenReady().then(async () => {
   const port = await findFreePort(PORT);
-  process.env.PORT = String(port);
+  process.env.KONSOLX_PORT = String(port);
 
   // Import the server entry — it self-starts on import (top-level startServer() call)
   const serverEntry = path.join(ROOT, "build", "server.js");

@@ -80,7 +80,7 @@ export async function startServer() {
     app.get("*", (_, res) => res.sendFile(path.join(distDir, "index.html")));
   }
 
-  const PORT = Number(process.env.PORT ?? 8012);
+  const PORT = Number(process.env.KONSOLX_PORT ?? process.env.PORT ?? 8016);
   server.listen(PORT, "0.0.0.0", () => {
     console.log(`[konsolx] Server running on http://localhost:${PORT}`);
   });
