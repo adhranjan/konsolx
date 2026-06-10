@@ -62,6 +62,7 @@ export interface TerminalState {
   groupColor?: string;
   envId?:      string;
   vars:        Record<string, string>;
+  pins:        { id: string; text: string; addedAt: number }[];
   groupOrder?: number;
   sortOrder?:  number;
 }
@@ -89,6 +90,7 @@ export const terminalsApi = {
   delete:   (id: string)                   => request<{ success: boolean }>(`/api/terminals/${id}`, { method: "DELETE" }),
   killAll:   ()                                      => request<{ success: boolean }>("/api/terminals", { method: "DELETE" }),
   patchVars: (id: string, vars: Record<string, string>) => request<{ success: boolean }>(`/api/terminals/${id}/vars`, { method: "PATCH", body: JSON.stringify(vars) }),
+  patchPins: (id: string, pins: { id: string; text: string; addedAt: number }[]) => request<{ success: boolean }>(`/api/terminals/${id}/pins`, { method: "PATCH", body: JSON.stringify(pins) }),
   applyEnv:  (id: string, envId: string)             => request<{ success: boolean }>(`/api/terminals/${id}/env/${envId}`, { method: "PUT" }),
 };
 

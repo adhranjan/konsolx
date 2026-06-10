@@ -1388,6 +1388,7 @@ export default function App() {
                   groupColor={tab.groupColor}
                   envId={tab.envId}
                   vars={tab.vars}
+                  initialPins={(tab as any).pins ?? []}
                   sortOrder={tabs.indexOf(tab)}
                   onClose={() => closeTab(tab.id)}
                   onSessionReady={(sessionId) => {

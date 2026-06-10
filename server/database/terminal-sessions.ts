@@ -5,8 +5,8 @@ export const terminalSessionDb = {
   upsert(s: TerminalSession): void {
     db.prepare(`
       INSERT INTO terminal_sessions
-        (session_id, pid, cwd, title, group_name, group_color, group_order, sort_order, env_id, vars)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        (session_id, pid, cwd, title, group_name, group_color, group_order, sort_order, env_id, vars, pins)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(session_id) DO UPDATE SET
         pid         = excluded.pid,
         cwd         = excluded.cwd,
@@ -16,7 +16,8 @@ export const terminalSessionDb = {
         group_order = excluded.group_order,
         sort_order  = excluded.sort_order,
         env_id      = excluded.env_id,
-        vars        = excluded.vars
+        vars        = excluded.vars,
+        pins        = excluded.pins
     `).run(
       s.sessionId,
       s.pid,
@@ -28,6 +29,7 @@ export const terminalSessionDb = {
       s.sortOrder  ?? null,
       s.envId      ?? null,
       JSON.stringify(s.vars ?? {}),
+      JSON.stringify(s.pins ?? []),
     );
   },
 

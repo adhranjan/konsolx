@@ -12,6 +12,7 @@ import {
   updateTerminalMeta,
   applyEnvToTerminal,
   patchTerminalVars,
+  patchPins,
 } from "../services/terminals.js";
 import { sessions } from "../sessions.js";
 
@@ -40,6 +41,16 @@ router.put("/terminals/:id", (req, res) => {
   const updated = updateTerminalMeta(req.params.id, req.body);
   if (!updated) return res.status(404).json({ error: "Session not found" });
   res.json({ success: true });
+});
+
+router.patch("/terminals/:id/pins", (req, res) => {
+  try {
+    patchPins(req.params.id, req.body);
+    res.json({ success: true });
+  } catch (err: any) {
+    const status = err.message === "Session not found" ? 404 : 500;
+    res.status(status).json({ error: err.message });
+  }
 });
 
 router.patch("/terminals/:id/vars", (req, res) => {

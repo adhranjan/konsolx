@@ -45,9 +45,10 @@ export interface TerminalSession {
   groupName?:  string;
   groupColor?: string;
   envId?:      string;
-  vars:        Record<string, string>;  // ad-hoc per-terminal overrides
-  groupOrder?: number;  // which batch this session belongs to (for ordering groups)
-  sortOrder?:  number;  // position within the group
+  vars:        Record<string, string>;
+  pins:        { id: string; text: string; addedAt: number }[];
+  groupOrder?: number;
+  sortOrder?:  number;
 }
 
 const BUFFER_MAX = 50_000;
@@ -124,6 +125,7 @@ export function createSession(opts: CreateSessionOptions): TerminalSession {
     groupColor: opts.groupColor,
     envId:      opts.envId,
     vars:       opts.vars ?? {},
+    pins:       [],
     groupOrder: opts.groupOrder,
     sortOrder:  opts.sortOrder,
   };

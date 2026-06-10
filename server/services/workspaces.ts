@@ -89,6 +89,7 @@ export function openWorkspace(workspaceId: string): TerminalState[] {
       groupColor:  session.groupColor,
       envId:       session.envId,
       vars:        session.vars,
+      pins:        session.pins,
       groupOrder:  session.groupOrder,
       sortOrder:   session.sortOrder,
     };

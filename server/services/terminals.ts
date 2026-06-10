@@ -23,6 +23,7 @@ export interface TerminalState {
   groupColor?: string;
   envId?:      string;
   vars:        Record<string, string>;
+  pins:        { id: string; text: string; addedAt: number }[];
   groupOrder?: number;
   sortOrder?:  number;
 }
@@ -65,6 +66,7 @@ const toState = async (sessionId: string, s: typeof sessions extends Map<string,
   groupColor:  s.groupColor,
   envId:       s.envId,
   vars:        s.vars,
+  pins:        s.pins,
   groupOrder:  s.groupOrder,
   sortOrder:   s.sortOrder,
 });
@@ -169,6 +171,13 @@ export function patchTerminalVars(sessionId: string, patch: Record<string, strin
     .join("\n");
 
   if (exports) session.shell.stdin.write(`${exports}\n`);
+  terminalSessionDb.upsert(session);
+}
+
+export function patchPins(sessionId: string, pins: { id: string; text: string; addedAt: number }[]): void {
+  const session = sessions.get(sessionId);
+  if (!session) throw new Error("Session not found");
+  session.pins = pins;
   terminalSessionDb.upsert(session);
 }
 

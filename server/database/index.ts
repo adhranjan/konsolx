@@ -15,7 +15,8 @@ db.exec(`
     group_order  INTEGER,
     sort_order   INTEGER,
     env_id       TEXT,
-    vars         TEXT NOT NULL DEFAULT '{}'
+    vars         TEXT NOT NULL DEFAULT '{}',
+    pins         TEXT NOT NULL DEFAULT '[]'
   );
   CREATE TABLE IF NOT EXISTS workspaces (
     id TEXT PRIMARY KEY,
@@ -53,6 +54,12 @@ if (!envCols.some(c => c.name === "groupName")) {
 const qcCols = db.prepare("PRAGMA table_info(quick_commands)").all() as any[];
 if (!qcCols.some(c => c.name === "grp")) {
   db.exec("ALTER TABLE quick_commands ADD COLUMN grp TEXT");
+}
+
+// Migration: add pins column if not present
+const tscols = db.prepare("PRAGMA table_info(terminal_sessions)").all() as any[];
+if (tscols && !tscols.some((c: any) => c.name === "pins")) {
+  db.exec("ALTER TABLE terminal_sessions ADD COLUMN pins TEXT NOT NULL DEFAULT '[]'");
 }
 
 db.prepare("DELETE FROM workspaces WHERE id = 'sample-work'").run();
