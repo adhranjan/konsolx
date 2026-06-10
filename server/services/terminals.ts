@@ -88,19 +88,6 @@ export async function getTerminal(sessionId: string): Promise<TerminalState | nu
 export function spawnTerminal(opts: CreateTerminalOptions): TerminalSession {
   const session = createSession(opts);
 
-  // Warnings + connected banner
-  const { useSshShell, useHostShell, hostUser } = OSInterface;
-  if ((useHostShell || useSshShell) && !hostUser) {
-    session.shell.stdout.emit("data", Buffer.from(
-      "\x1b[1;33m[Warning: HOST_USER not set — running as root. " +
-      "Start with: HOST_USER=$(whoami) docker compose up -d]\x1b[0m\r\n"
-    ));
-  }
-  if (useHostShell || useSshShell) {
-    const label = useSshShell ? "Connected via SSH to Mac Host" : "Connected to Host Shell";
-    session.shell.stdout.emit("data", Buffer.from(`\x1b[1;32m[${label}]\x1b[0m\r\n`));
-  }
-
   sendSetupCommands(session, opts);
 
   return session;

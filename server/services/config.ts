@@ -3,10 +3,7 @@ import os from "os";
 const currentSha = process.env.GIT_SHA ?? "undefined";
 
 export interface ServerConfig {
-  useHostShell:    boolean;
-  useSshShell:     boolean;
   platform:        string;
-  hostOs:          string | null;
   isDev:           boolean;
   updateAvailable: string | null;
 }
@@ -25,11 +22,8 @@ export async function getConfig(): Promise<ServerConfig> {
   } catch {}
 
   return {
-    useHostShell:    process.env.USE_HOST_SHELL === "true",
-    useSshShell:     process.env.USE_SSH_SHELL  === "true",
     platform:        os.platform(),
-    hostOs:          process.env.HOST_OS ?? null,
-    isDev:           process.env.KONSOLX_ENV === "dev",
+    isDev:           process.env.NODE_ENV === "development",
     updateAvailable,
   };
 }

@@ -17,10 +17,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
 // ── Config ────────────────────────────────────────────────────────────────────
 export interface ServerConfig {
-  useHostShell:    boolean;
-  useSshShell:     boolean;
   platform:        string;
-  hostOs:          string | null;
   isDev:           boolean;
   updateAvailable: string | null;
 }

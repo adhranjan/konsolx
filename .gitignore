@@ -8,6 +8,7 @@ node_modules/
 
 dist/
 build/
+build-electron/
 release/
 
 # local env files
@@ -54,3 +55,12 @@ coverage/
 
 # Database
 terminal.db
+
+# Electron
+electron-builder.env
+*.AppImage
+*.rpm
+*.deb
+
+# Runtime data (auto-created, not for version control)
+shell_pids.json

@@ -124,7 +124,7 @@ export default function App() {
       setKillPortStatus({ message: err instanceof Error ? err.message : 'Request failed', type: 'error' });
     }
   };
-  const [serverConfig, setServerConfig] = useState<{ useHostShell: boolean; useSshShell: boolean; platform: string; hostOs: string | null; isDev: boolean; updateAvailable: string | null } | null>(null);
+  const [serverConfig, setServerConfig] = useState<{ platform: string; isDev: boolean; updateAvailable: string | null } | null>(null);
   const [updateDismissed, setUpdateDismissed] = useState(false);
 
   const syncTerminalTabs = () => {
@@ -822,11 +822,6 @@ export default function App() {
           <div className="flex items-center gap-2 text-[11px] font-bold text-white/40 uppercase tracking-widest">
             <Monitor size={12} />
             <span>Konsolx Desktop</span>
-            {serverConfig?.useHostShell && (
-              <span className="ml-2 px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-500 text-[9px] border border-emerald-500/20">
-                Host Shell Active
-              </span>
-            )}
           </div>
         </div>
         <div className="flex items-center gap-4">
@@ -852,13 +847,6 @@ export default function App() {
         </div>
       </div>
 
-      {/* Windows not supported banner */}
-      {serverConfig?.hostOs === 'windows' && (
-        <div className="bg-red-500/10 border-b border-red-500/20 px-4 py-2 flex items-center gap-2 text-xs text-red-300 shrink-0">
-          <AlertTriangle size={12} />
-          <span>Windows is not supported yet. Konsolx requires Linux or Mac. See the README for details.</span>
-        </div>
-      )}
 
       {/* Update banner */}
       <AnimatePresence>
@@ -877,7 +865,7 @@ export default function App() {
               </span>
               <span className="text-white/30">—</span>
               <code className="bg-white/5 px-2 py-0.5 rounded font-mono text-[10px] text-white/60 select-all">
-                docker compose pull && HOST_USER=$(whoami) docker compose up -d
+                git pull && npm run build && npm run electron:build
               </code>
             </div>
             <button onClick={() => setUpdateDismissed(true)} className="p-1 hover:text-white transition-colors ml-2 shrink-0">

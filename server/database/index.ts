@@ -55,20 +55,4 @@ if (!qcCols.some(c => c.name === "grp")) {
   db.exec("ALTER TABLE quick_commands ADD COLUMN grp TEXT");
 }
 
-// Remove icon column data by just ignoring it — no DROP COLUMN in old SQLite
-// Seed built-in Konsolx Update command
-const hostUser = process.env.HOST_USER;
-const updateCwd = hostUser ? `/home/${hostUser}` : null;
-const existing = db.prepare("SELECT id FROM quick_commands WHERE id = 'konsolx-update'").get();
-if (!existing) {
-  db.prepare("INSERT INTO quick_commands (id, name, command, cwd, grp) VALUES (?, ?, ?, ?, ?)").run(
-    "konsolx-update",
-    "Konsolx Update",
-    "docker compose pull && HOST_USER=$(whoami) docker compose up -d",
-    updateCwd,
-    "Konsolx"
-  );
-}
-
-// Remove stale sample workspace
 db.prepare("DELETE FROM workspaces WHERE id = 'sample-work'").run();
