@@ -2,7 +2,6 @@ import express from "express";
 import { killAllTerminals } from "./services/terminals.js";
 import { createServer } from "http";
 import { WebSocketServer, WebSocket } from "ws";
-import { createServer as createViteServer } from "vite";
 import { fileURLToPath } from "url";
 import path from "path";
 import fs from "fs";
@@ -66,6 +65,8 @@ export async function startServer() {
   // Static / Vite
   const isDev = process.env.NODE_ENV === "development";
   if (isDev) {
+    // Dynamic import — vite is a devDependency, not available in packaged app
+    const { createServer: createViteServer } = await import("vite");
     const vite = await createViteServer({
       root: ROOT,
       server: { middlewareMode: true },
