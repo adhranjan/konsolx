@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Terminal } from 'xterm';
+import { Terminal, IMarker } from 'xterm';
 import { FitAddon } from 'xterm-addon-fit';
 import { SearchAddon } from 'xterm-addon-search';
 import { RefreshCw, Pin, X, ChevronUp, ChevronDown, PinOff } from 'lucide-react';
@@ -51,8 +51,12 @@ const TerminalComponent: React.FC<TerminalComponentProps> = ({
   const [showPins, setShowPins]   = useState(false);
   const [pinIdx, setPinIdx]       = useState(0);
   const [ctxMenu, setCtxMenu]     = useState<{ x: number; y: number; text: string } | null>(null);
-  const pinsRef = useRef(pins);
-  pinsRef.current = pins;
+  const pinsRef    = useRef(pins);
+  pinsRef.current  = pins;
+  // Live markers per pin id — track the exact buffer line, move as the terminal scrolls.
+  // Transient (live buffer only); not persisted. Falls back to text search if absent/disposed.
+  const markersRef = useRef<Map<string, IMarker>>(new Map());
+  const flashDecoRef = useRef<{ dispose(): void } | null>(null);
 
   const syncPins = (next: Pin[]) => {
     setPins(next);
@@ -61,20 +65,74 @@ const TerminalComponent: React.FC<TerminalComponentProps> = ({
   };
 
   const addPin = (text: string) => {
-    const next = [...pinsRef.current, { id: crypto.randomUUID(), text: text.trim(), addedAt: Date.now() }];
+    const id = crypto.randomUUID();
+
+    // Register a marker at the selection's line so we can jump back to the exact original.
+    const term = xtermRef.current;
+    if (term) {
+      const range = term.getSelectionPosition();
+      if (range) {
+        const buf       = term.buffer.active;
+        const cursorAbs = buf.baseY + buf.cursorY;     // cursor's absolute buffer line
+        const offset    = range.start.y - cursorAbs;    // selection line relative to cursor
+        try {
+          const marker = term.registerMarker(offset);
+          if (marker) markersRef.current.set(id, marker);
+        } catch {}
+      }
+    }
+
+    const next = [...pinsRef.current, { id, text: text.trim(), addedAt: Date.now() }];
     syncPins(next);
     setShowPins(true);
   };
 
   const removePin = (id: string) => {
+    markersRef.current.get(id)?.dispose();
+    markersRef.current.delete(id);
     syncPins(pinsRef.current.filter(p => p.id !== id));
+  };
+
+  const clearPins = () => {
+    flashDecoRef.current?.dispose();
+    flashDecoRef.current = null;
+    markersRef.current.forEach(m => m.dispose());
+    markersRef.current.clear();
+    syncPins([]);
   };
 
   const goToPin = (idx: number) => {
     const p = pins[idx];
-    if (!p || !searchAddonRef.current) return;
+    const term = xtermRef.current;
+    if (!p || !term) return;
     setPinIdx(idx);
-    searchAddonRef.current.findNext(p.text, { caseSensitive: false, decorations: { matchBackground: '#f59e0b40', matchBorder: '#f59e0b', activeMatchBackground: '#f59e0b80', activeMatchBorder: '#f59e0b' } });
+
+    // Prefer the exact marker line (survives duplicate text). Fall back to text search.
+    const marker = markersRef.current.get(p.id);
+    if (marker && !marker.isDisposed && marker.line >= 0) {
+      // Center the pinned line in the viewport
+      const target = Math.max(0, marker.line - Math.floor(term.rows / 2));
+      term.scrollToLine(target);
+
+      // Flash the line amber, then fade out
+      flashDecoRef.current?.dispose();
+      flashDecoRef.current = null;
+      const deco = term.registerDecoration({ marker, width: term.cols, layer: 'bottom' });
+      if (deco) {
+        deco.onRender((el: HTMLElement) => { el.classList.add('pin-flash'); });
+        flashDecoRef.current = deco;
+        setTimeout(() => { deco.dispose(); if (flashDecoRef.current === deco) flashDecoRef.current = null; }, 1700);
+      }
+    } else if (searchAddonRef.current) {
+      // Marker gone (e.g. after restart) — search highlights the matching text
+      searchAddonRef.current.findNext(p.text, {
+        caseSensitive: false,
+        decorations: {
+          matchBackground: '#f59e0b40', matchBorder: '#f59e0b',
+          activeMatchBackground: '#f59e0b80', activeMatchBorder: '#f59e0b',
+        },
+      });
+    }
   };
 
   useEffect(() => {
@@ -84,10 +142,11 @@ const TerminalComponent: React.FC<TerminalComponentProps> = ({
 
     // ── 1. Boot xterm ────────────────────────────────────────────────────────
     const term = new Terminal({
-      cursorBlink:  true,
-      fontSize:     14,
-      fontFamily:   '"JetBrains Mono", monospace',
-      convertEol:   true,
+      cursorBlink:     true,
+      fontSize:        14,
+      fontFamily:      '"JetBrains Mono", monospace',
+      convertEol:      true,
+      allowProposedApi: true,   // required for registerDecoration (pin flash)
       theme: { background: '#0a0a0a', foreground: '#e0e0e0' },
     });
     const fitAddon = new FitAddon();
@@ -267,7 +326,7 @@ const TerminalComponent: React.FC<TerminalComponentProps> = ({
   }, [isActive]);
 
   const handleRestart = () => {
-    syncPins([]);
+    clearPins();
     setShowPins(false);
     sessionIdRef.current = null;
     setReconnectKey(prev => prev + 1);
@@ -291,7 +350,7 @@ const TerminalComponent: React.FC<TerminalComponentProps> = ({
               <button onClick={() => goToPin((pinIdx + 1) % pins.length)} className="p-0.5 hover:bg-white/10 rounded text-white/30 hover:text-white" title="Next pin">
                 <ChevronDown size={12} />
               </button>
-              <button onClick={() => syncPins([])} className="p-0.5 hover:bg-white/10 rounded text-white/30 hover:text-red-400 ml-1" title="Clear all pins">
+              <button onClick={clearPins} className="p-0.5 hover:bg-white/10 rounded text-white/30 hover:text-red-400 ml-1" title="Clear all pins">
                 <PinOff size={12} />
               </button>
               <button onClick={() => setShowPins(false)} className="p-0.5 hover:bg-white/10 rounded text-white/30 hover:text-white" title="Hide pins">

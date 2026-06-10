@@ -76,3 +76,14 @@ body {
   scrollbar-width: thin;
   scrollbar-color: rgba(255,255,255,0.08) transparent;
 }
+
+/* Pin jump flash — line lights up amber then fades out */
+@keyframes pin-flash {
+  0%   { background-color: rgba(245, 158, 11, 0.55); }
+  100% { background-color: rgba(245, 158, 11, 0); }
+}
+.pin-flash {
+  animation: pin-flash 1.6s ease-out forwards;
+  border-left: 2px solid #f59e0b;
+  width: 100% !important;
+}

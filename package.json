@@ -16,8 +16,10 @@
     "build:server": "tsc -p tsconfig.server.json",
     "build:electron": "tsc -p tsconfig.electron.json",
     "build": "vite build && npm run build:server",
-    "electron:dev": "npm run build && npm run build:electron && electron build-electron/main.js",
-    "electron:build": "npm run build && npm run build:electron && electron-builder --linux --publish never"
+    "rebuild:node": "npm rebuild better-sqlite3",
+    "rebuild:electron": "electron-rebuild -f -w better-sqlite3",
+    "electron:dev": "npm run build && npm run build:electron && npm run rebuild:electron && electron build-electron/main.js --no-sandbox",
+    "electron:build": "npm run build && npm run build:electron && npm run rebuild:electron && electron-builder --linux --publish never"
   },
   "main": "build-electron/main.js",
   "build": {
