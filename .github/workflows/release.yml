@@ -1,0 +1,52 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'   # triggers on v1.0.0, v1.2.3, etc.
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install ImageMagick (for icon generation)
+        run: sudo apt-get install -y imagemagick
+
+      - name: Generate icons
+        run: |
+          mkdir -p build-assets
+          for size in 16 32 48 64 128 256 512; do
+            convert -background none -density 300 public/favicon.svg -resize ${size}x${size} build-assets/${size}x${size}.png
+          done
+
+      - name: Build frontend + server
+        run: npm run build
+
+      - name: Build Electron main
+        run: npm run build:electron
+
+      - name: Rebuild native modules for Electron
+        run: npx electron-rebuild -f -w better-sqlite3
+
+      - name: Package AppImage
+        run: npm run electron:build
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release/*.AppImage
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
