@@ -164,13 +164,18 @@ export default function App() {
     syncTerminalTabs();
   }, []);
 
-  // Refetch terminals when the browser tab becomes visible again
+  // Refetch when window regains focus (works in both Electron and browser)
   const syncRef = useRef(syncTerminalTabs);
   syncRef.current = syncTerminalTabs;
   useEffect(() => {
     const onVisible = () => { if (document.visibilityState === 'visible') syncRef.current(); };
+    const onFocus   = () => syncRef.current();
     document.addEventListener('visibilitychange', onVisible);
-    return () => document.removeEventListener('visibilitychange', onVisible);
+    window.addEventListener('focus', onFocus);
+    return () => {
+      document.removeEventListener('visibilitychange', onVisible);
+      window.removeEventListener('focus', onFocus);
+    };
   }, []);
 
   // Block DevTools in release mode
