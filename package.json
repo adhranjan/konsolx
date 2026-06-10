@@ -17,13 +17,12 @@
     "build:electron": "tsc -p tsconfig.electron.json",
     "build": "vite build && npm run build:server",
     "electron:dev": "npm run build && npm run build:electron && electron build-electron/main.js",
-    "electron:build": "npm run build && npm run build:electron && electron-builder --linux"
+    "electron:build": "npm run build && npm run build:electron && electron-builder --linux --publish never"
   },
   "main": "build-electron/main.js",
   "build": {
     "appId": "com.konsolx.app",
     "productName": "Konsolx",
-    "desktopName": "konsolx.desktop",
     "directories": {
       "output": "release"
     },
