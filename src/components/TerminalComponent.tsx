@@ -54,10 +54,22 @@ const TerminalComponent: React.FC<TerminalComponentProps> = ({
     fitAddonRef.current = fitAddon;
     term.loadAddon(fitAddon);
     term.open(terminalRef.current);
-    if (terminalRef.current.offsetWidth > 0) {
-      try { fitAddon.fit(); } catch {}
-    }
     xtermRef.current = term;
+
+    // Wait for container to have real dimensions before fitting
+    // (Electron often renders at 0×0 briefly on first mount)
+    const doFit = () => {
+      if (terminalRef.current && terminalRef.current.offsetWidth > 0 && terminalRef.current.offsetHeight > 0) {
+        try { fitAddon.fit(); } catch {}
+        return true;
+      }
+      return false;
+    };
+    if (!doFit()) {
+      // Poll until the container has dimensions
+      const poll = setInterval(() => { if (doFit()) clearInterval(poll); }, 50);
+      setTimeout(() => clearInterval(poll), 3000); // give up after 3s
+    }
 
     let cancelled = false;
 
