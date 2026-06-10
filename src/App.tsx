@@ -1971,35 +1971,37 @@ export default function App() {
         )}
       </AnimatePresence>
 
-      {/* Busy terminal toast */}
-      <AnimatePresence>
-        {busyToast && (
-          <motion.div
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: 10 }}
-            className="fixed bottom-4 right-4 z-[200] flex items-center gap-2 px-3 py-2 bg-amber-500/10 border border-amber-500/20 rounded-lg text-xs text-amber-400 shadow-xl"
-          >
-            <AlertTriangle size={12} />
-            <span>Terminal is busy — stop the running process first</span>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      {/* Global API error toast */}
-      <AnimatePresence>
-        {apiErrorToast && (
-          <motion.div
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: 10 }}
-            className="fixed bottom-4 right-4 z-[200] flex items-center gap-2 px-3 py-2 bg-red-500/10 border border-red-500/20 rounded-lg text-xs text-red-400 shadow-xl"
-          >
-            <AlertTriangle size={12} />
-            <span>{apiErrorToast}</span>
-          </motion.div>
-        )}
-      </AnimatePresence>
+      {/* Toast stack — bottom-right, stacks vertically when multiple show */}
+      <div className="fixed bottom-4 right-4 z-[200] flex flex-col gap-2 items-end">
+        <AnimatePresence>
+          {busyToast && (
+            <motion.div
+              key="busy"
+              initial={{ opacity: 0, y: 10, scale: 0.95 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 10, scale: 0.95 }}
+              className="flex items-center gap-2 px-3 py-2 bg-amber-500/10 border border-amber-500/20 rounded-lg text-xs text-amber-400 shadow-xl"
+            >
+              <AlertTriangle size={12} />
+              <span>Terminal is busy — stop the running process first</span>
+            </motion.div>
+          )}
+        </AnimatePresence>
+        <AnimatePresence>
+          {apiErrorToast && (
+            <motion.div
+              key="api-error"
+              initial={{ opacity: 0, y: 10, scale: 0.95 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 10, scale: 0.95 }}
+              className="flex items-center gap-2 px-3 py-2 bg-red-500/10 border border-red-500/20 rounded-lg text-xs text-red-400 shadow-xl"
+            >
+              <AlertTriangle size={12} />
+              <span>{apiErrorToast}</span>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
     </div>
     </div>
   );
