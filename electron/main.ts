@@ -9,6 +9,10 @@ const ROOT      = path.resolve(__dirname, "..");
 
 const PORT = Number(process.env.PORT ?? 8016);
 
+// Set consistent data path before anything else — prevents falling back to "Electron" folder
+app.setName("Konsolx");
+app.setPath("userData", path.join(app.getPath("home"), ".config", "konsolx"));
+
 let win: BrowserWindow | null = null;
 
 // ── Singleton lock ────────────────────────────────────────────────────────────
