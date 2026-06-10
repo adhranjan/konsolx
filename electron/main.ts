@@ -11,6 +11,22 @@ const PORT = Number(process.env.PORT ?? 8016);
 
 let win: BrowserWindow | null = null;
 
+// ── Singleton lock ────────────────────────────────────────────────────────────
+const gotLock = app.requestSingleInstanceLock();
+if (!gotLock) {
+  // Another instance is already running — quit immediately
+  app.quit();
+  process.exit(0);
+}
+
+// If a second instance is launched, focus the existing window
+app.on("second-instance", () => {
+  if (win) {
+    if (win.isMinimized()) win.restore();
+    win.focus();
+  }
+});
+
 // ── Find a free port ─────────────────────────────────────────────────────────
 function findFreePort(preferred: number): Promise<number> {
   return new Promise(resolve => {
