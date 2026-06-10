@@ -1,7 +1,12 @@
 {
   "name": "konsolx",
   "private": true,
-  "version": "0.0.0",
+  "version": "1.0.0",
+  "description": "Desktop terminal workspace manager for developers",
+  "author": {
+    "name": "Ranjan",
+    "email": "adh.ranjan@gmail.com"
+  },
   "type": "module",
   "scripts": {
     "dev": "vite build --watch & tsx watch server.ts",
