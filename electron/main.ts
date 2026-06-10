@@ -63,6 +63,7 @@ function createWindow() {
     minWidth:  900,
     minHeight: 600,
     title: "Konsolx",
+    icon: path.join(ROOT, "build-assets", "512x512.png"),
     backgroundColor: "#0a0a0a",
     webPreferences: {
       nodeIntegration: false,

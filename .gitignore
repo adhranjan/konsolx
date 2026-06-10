@@ -58,6 +58,7 @@ terminal.db
 
 # Electron
 electron-builder.env
+build-assets/
 *.AppImage
 *.rpm
 *.deb

@@ -3,8 +3,8 @@ import { getConfig } from "../services/config.js";
 
 const router = Router();
 
-router.get("/config", async (req, res) => {
-  res.json(await getConfig());
+router.get("/config", (req, res) => {
+  res.json(getConfig());
 });
 
 export default router;

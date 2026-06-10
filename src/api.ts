@@ -17,9 +17,8 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
 // ── Config ────────────────────────────────────────────────────────────────────
 export interface ServerConfig {
-  platform:        string;
-  isDev:           boolean;
-  updateAvailable: string | null;
+  platform: string;
+  isDev:    boolean;
 }
 
 export const configApi = {

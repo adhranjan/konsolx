@@ -23,6 +23,7 @@
   "build": {
     "appId": "com.konsolx.app",
     "productName": "Konsolx",
+    "desktopName": "konsolx.desktop",
     "directories": {
       "output": "release"
     },
@@ -34,11 +35,10 @@
       "package.json"
     ],
     "linux": {
-      "target": [
-        "AppImage",
-        "rpm"
-      ],
-      "category": "Development"
+      "target": ["AppImage"],
+      "icon": "build-assets",
+      "category": "Development",
+      "syncDesktopName": true
     },
     "extraResources": [
       {

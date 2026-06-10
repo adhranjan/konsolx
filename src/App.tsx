@@ -124,8 +124,7 @@ export default function App() {
       setKillPortStatus({ message: err instanceof Error ? err.message : 'Request failed', type: 'error' });
     }
   };
-  const [serverConfig, setServerConfig] = useState<{ platform: string; isDev: boolean; updateAvailable: string | null } | null>(null);
-  const [updateDismissed, setUpdateDismissed] = useState(false);
+  const [serverConfig, setServerConfig] = useState<{ platform: string; isDev: boolean } | null>(null);
 
   const syncTerminalTabs = () => {
     terminalsApi.list().then(sessions => {
@@ -850,29 +849,6 @@ export default function App() {
 
       {/* Update banner */}
       <AnimatePresence>
-        {serverConfig?.updateAvailable && !updateDismissed && (
-          <motion.div
-            initial={{ height: 0, opacity: 0 }}
-            animate={{ height: 'auto', opacity: 1 }}
-            exit={{ height: 0, opacity: 0 }}
-            className="bg-blue-500/10 border-b border-blue-500/20 px-4 py-2 flex items-center justify-between text-xs text-blue-300 shrink-0"
-          >
-            <div className="flex items-center gap-2">
-              <RefreshCw size={12} />
-              <span>New version available</span>
-              <span className="font-mono bg-blue-500/15 px-1.5 py-0.5 rounded text-[10px] text-blue-200">
-                {serverConfig.updateAvailable.slice(0, 7)}
-              </span>
-              <span className="text-white/30">—</span>
-              <code className="bg-white/5 px-2 py-0.5 rounded font-mono text-[10px] text-white/60 select-all">
-                git pull && npm run build && npm run electron:build
-              </code>
-            </div>
-            <button onClick={() => setUpdateDismissed(true)} className="p-1 hover:text-white transition-colors ml-2 shrink-0">
-              <X size={12} />
-            </button>
-          </motion.div>
-        )}
       </AnimatePresence>
 
       <div className="flex flex-1 overflow-hidden">
