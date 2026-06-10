@@ -1282,11 +1282,14 @@ export default function App() {
             const isSameGroup  = idx > 0 && tabs[idx - 1].groupOrder === tab.groupOrder && tab.groupOrder !== undefined;
             const isGroupStart = tab.groupOrder !== undefined &&
               tabs.findIndex(t => t.groupOrder === tab.groupOrder) === idx;
+            const groupSize = tab.groupOrder !== undefined
+              ? tabs.filter(t => t.groupOrder === tab.groupOrder).length
+              : 0;
 
             return (
               <React.Fragment key={tab.id}>
-                {/* Group label — shown at the start of each named group */}
-                {isGroupStart && tab.groupName && (
+                {/* Group label — only shown if group has more than 1 tab */}
+                {isGroupStart && tab.groupName && groupSize > 1 && (
                   <div className="flex items-center gap-1 ml-2 mr-0.5 select-none flex-shrink-0">
                     <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: tab.groupColor ?? '#555' }} />
                     <span className="text-[10px] font-bold uppercase tracking-widest text-white/30 whitespace-nowrap">
