@@ -24,7 +24,6 @@
     "appId": "com.konsolx.app",
     "productName": "Konsolx",
     "desktopName": "konsolx.desktop",
-    "publish": { "provider": "github", "owner": "adhranjan", "repo": "konsolx" },
     "directories": {
       "output": "release"
     },
