@@ -82,25 +82,20 @@ export default function App() {
   const [isKillPortModalOpen, setIsKillPortModalOpen] = useState(false);
   const tabSessionsRef = useRef<Map<string, string>>(new Map());
   const tabInputsRef = useRef<Map<string, (cmd: string) => void>>(new Map());
-  const [busyToast, setBusyToast] = useState(false);
-  const [apiErrorToast, setApiErrorToast] = useState<string | null>(null);
+  const [apiErrorToast, setApiErrorToast] = useState<{ message: string; isBusy: boolean } | null>(null);
   const apiErrorTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     const handler = (e: Event) => {
-      const { message } = (e as CustomEvent<{ message: string; status: number; path: string }>).detail;
+      const { message, status } = (e as CustomEvent<{ message: string; status: number; path: string }>).detail;
       if (apiErrorTimer.current) clearTimeout(apiErrorTimer.current);
-      setApiErrorToast(message);
+      setApiErrorToast({ message, isBusy: status === 409 || message.toLowerCase().includes("busy") });
       apiErrorTimer.current = setTimeout(() => setApiErrorToast(null), 4000);
     };
     window.addEventListener("api:error", handler);
     return () => window.removeEventListener("api:error", handler);
   }, []);
 
-  const showBusyToast = () => {
-    setBusyToast(true);
-    setTimeout(() => setBusyToast(false), 3000);
-  };
 
   const checkTabBusy = async (tabId: string): Promise<boolean> => {
     const sessionId = tabSessionsRef.current.get(tabId);
@@ -1186,11 +1181,8 @@ export default function App() {
                               await terminalsApi.applyEnv(sessionId, env.id);
                               // Only update tab state after shell confirms
                               setTabs(prev => prev.map(t => t.id === activeTabId ? { ...t, envId: env.id } : t));
-                            } catch (err: any) {
-                              if (err.message?.includes("busy")) {
-                                showBusyToast();
-                              }
-                              // api:error event already fired from request() — global toast handles it
+                            } catch {
+                              // api:error event fired from request() — global toast handles it
                               // Don't update envId — env was not applied
                             }
                           } else {
@@ -1971,37 +1963,25 @@ export default function App() {
         )}
       </AnimatePresence>
 
-      {/* Toast stack — bottom-right, stacks vertically when multiple show */}
-      <div className="fixed bottom-4 right-4 z-[200] flex flex-col gap-2 items-end">
-        <AnimatePresence>
-          {busyToast && (
-            <motion.div
-              key="busy"
-              initial={{ opacity: 0, y: 10, scale: 0.95 }}
-              animate={{ opacity: 1, y: 0, scale: 1 }}
-              exit={{ opacity: 0, y: 10, scale: 0.95 }}
-              className="flex items-center gap-2 px-3 py-2 bg-amber-500/10 border border-amber-500/20 rounded-lg text-xs text-amber-400 shadow-xl"
-            >
-              <AlertTriangle size={12} />
-              <span>Terminal is busy — stop the running process first</span>
-            </motion.div>
-          )}
-        </AnimatePresence>
-        <AnimatePresence>
-          {apiErrorToast && (
-            <motion.div
-              key="api-error"
-              initial={{ opacity: 0, y: 10, scale: 0.95 }}
-              animate={{ opacity: 1, y: 0, scale: 1 }}
-              exit={{ opacity: 0, y: 10, scale: 0.95 }}
-              className="flex items-center gap-2 px-3 py-2 bg-red-500/10 border border-red-500/20 rounded-lg text-xs text-red-400 shadow-xl"
-            >
-              <AlertTriangle size={12} />
-              <span>{apiErrorToast}</span>
-            </motion.div>
-          )}
-        </AnimatePresence>
-      </div>
+      {/* Single toast — amber for busy, red for errors */}
+      <AnimatePresence>
+        {apiErrorToast && (
+          <motion.div
+            key="toast"
+            initial={{ opacity: 0, y: 10, scale: 0.95 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 10, scale: 0.95 }}
+            className={`fixed bottom-4 right-4 z-[200] flex items-center gap-2 px-3 py-2 rounded-lg text-xs shadow-xl border ${
+              apiErrorToast.isBusy
+                ? 'bg-amber-500/10 border-amber-500/20 text-amber-400'
+                : 'bg-red-500/10 border-red-500/20 text-red-400'
+            }`}
+          >
+            <AlertTriangle size={12} />
+            <span>{apiErrorToast.message}</span>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
     </div>
   );
