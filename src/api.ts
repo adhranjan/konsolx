@@ -17,12 +17,19 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
 // ── Config ────────────────────────────────────────────────────────────────────
 export interface ServerConfig {
-  platform: string;
-  isDev:    boolean;
+  platform:        string;
+  isDev:           boolean;
+  availableShells: string[];
 }
 
 export const configApi = {
   get: () => request<ServerConfig>("/api/config"),
+};
+
+// ── Settings ──────────────────────────────────────────────────────────────────
+export const settingsApi = {
+  get: ()                       => request<Record<string, string>>("/api/settings"),
+  set: (key: string, value: string) => request<{ success: boolean }>(`/api/settings/${key}`, { method: "PUT", body: JSON.stringify({ value }) }),
 };
 
 // ── Workspaces ────────────────────────────────────────────────────────────────

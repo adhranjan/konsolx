@@ -30,6 +30,11 @@ db.exec(`
     groupName TEXT,
     variables TEXT NOT NULL
   );
+  -- Key/value app settings (default shell, etc.) — local to this machine.
+  CREATE TABLE IF NOT EXISTS settings (
+    key   TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+  );
   -- Local-only command learning. NEVER included in bulk export. Stays on this machine.
   CREATE TABLE IF NOT EXISTS command_history (
     project    TEXT NOT NULL,

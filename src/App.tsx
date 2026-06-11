@@ -32,7 +32,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import TerminalComponent from './components/TerminalComponent';
 import Modal from './components/Modal';
 import { Workspace, Environment, Tab, EnvVar, QuickCommand } from './types';
-import { configApi, workspacesApi, environmentsApi, quickCommandsApi, terminalsApi, killPortApi, bulkApi } from './api';
+import { configApi, settingsApi, workspacesApi, environmentsApi, quickCommandsApi, terminalsApi, killPortApi, bulkApi } from './api';
 
 export default function App() {
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
@@ -120,7 +120,7 @@ export default function App() {
       setKillPortStatus({ message: err instanceof Error ? err.message : 'Request failed', type: 'error' });
     }
   };
-  const [serverConfig, setServerConfig] = useState<{ platform: string; isDev: boolean } | null>(null);
+  const [serverConfig, setServerConfig] = useState<{ platform: string; isDev: boolean; availableShells: string[] } | null>(null);
 
   const syncTerminalTabs = () => {
     terminalsApi.list().then(sessions => {
@@ -156,6 +156,7 @@ export default function App() {
       setCollapsedQcGroups(groups);
     });
     configApi.get().then(setServerConfig);
+    settingsApi.get().then(s => { if (s.defaultShell !== undefined) setDefaultShell(s.defaultShell); }).catch(() => {});
 
     syncTerminalTabs();
   }, []);
@@ -919,14 +920,15 @@ export default function App() {
             </div>
             <select 
               value={defaultShell}
-              onChange={(e) => setDefaultShell(e.target.value)}
+              onChange={(e) => { setDefaultShell(e.target.value); settingsApi.set('defaultShell', e.target.value).catch(() => {}); }}
               className="w-full bg-white/5 border border-white/10 rounded px-2 py-1.5 text-xs text-white/80 outline-none focus:border-emerald-500/50 transition-colors cursor-pointer"
             >
               <option value="" className="bg-[#141414]">System Default</option>
-              <option value="bash" className="bg-[#141414]">Bash</option>
-              <option value="sh" className="bg-[#141414]">Sh</option>
-              <option value="tmux" className="bg-[#141414]">Tmux</option>
-              <option value="zsh" className="bg-[#141414]">Zsh</option>
+              {(serverConfig?.availableShells ?? []).map(sh => (
+                <option key={sh} value={sh} className="bg-[#141414]">
+                  {sh.charAt(0).toUpperCase() + sh.slice(1)}
+                </option>
+              ))}
             </select>
           </div>
 

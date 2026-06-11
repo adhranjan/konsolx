@@ -11,6 +11,7 @@ import {
 } from "../sessions.js";
 import { environmentDb } from "../database/environments.js";
 import { terminalSessionDb } from "../database/terminal-sessions.js";
+import { settingsDb } from "../database/settings.js";
 
 export interface TerminalState {
   sessionId:   string;
@@ -88,9 +89,11 @@ export async function getTerminal(sessionId: string): Promise<TerminalState | nu
 }
 
 export function spawnTerminal(opts: CreateTerminalOptions): TerminalSession {
-  const session = createSession(opts);
+  // Resolve shell: explicit request → stored default → OS default (handled downstream)
+  const shell = opts.shell || settingsDb.get("defaultShell") || undefined;
+  const session = createSession({ ...opts, shell });
 
-  sendSetupCommands(session, opts);
+  sendSetupCommands(session, { ...opts, shell });
 
   return session;
 }
