@@ -1,10 +1,21 @@
 import { exec as execCb } from "child_process";
 import os from "os";
-import * as pty from "node-pty";
+import { createRequire } from "module";
 import type { IPty } from "node-pty";
 import {
   OSInterface, SpawnShellOptions, ExecResult, KillPortResult,
 } from "./types.js";
+
+// Load node-pty defensively. If the native module didn't build for this runtime,
+// the server still boots and reports canSpawnTerminal=false (the UI shows a
+// helpful screen) instead of crashing on import.
+const require = createRequire(import.meta.url);
+let pty: typeof import("node-pty") | null = null;
+try {
+  pty = require("node-pty");
+} catch (err) {
+  console.error("[OS] node-pty failed to load — terminals disabled:", (err as Error).message);
+}
 
 /**
  * Shared behaviour for all platforms. Subclasses implement the OS-specific
@@ -27,6 +38,7 @@ export abstract class BaseOS implements OSInterface {
 
   /** Spawn an interactive shell as a real PTY — node-pty handles ConPTY/forkpty. */
   spawnShell(opts: SpawnShellOptions): IPty {
+    if (!pty) throw new Error("node-pty unavailable — cannot spawn terminal");
     const { cwd = process.cwd(), env = {}, cols = 80, rows = 24, shell = this.defaultShell } = opts;
     const spawnEnv = {
       ...process.env as Record<string, string>, ...env,
@@ -36,9 +48,9 @@ export abstract class BaseOS implements OSInterface {
     return pty.spawn(shell, [], { name: "xterm-256color", cols, rows, cwd, env: spawnEnv });
   }
 
-  /** node-pty supports all three platforms — a real terminal is always possible. */
+  /** True when node-pty loaded — it supports Linux/Mac/Windows alike. */
   canSpawnTerminal(): boolean {
-    return true;
+    return pty !== null;
   }
 
   /** Default exec — runs through the platform's default shell via Node. */
