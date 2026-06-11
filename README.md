@@ -55,6 +55,37 @@ Konsolx is an Electron app that bundles an Express server + React frontend. When
 
 ---
 
+## Konsolx vs Warp
+
+They aren't really competitors. **Warp is a better terminal. Konsolx is a better dev-context manager** that happens to render terminals. Warp makes *typing commands* nicer; Konsolx makes *juggling 15 services* — their repos, envs, and running processes — manageable and private.
+
+| Scope | Warp | Konsolx | Who's better & why |
+|---|---|---|---|
+| **Privacy of data** | Env vars, commands, DB URLs synced to Warp's cloud | 100% local SQLite, zero outbound calls | **Konsolx** — your secrets never leave the machine |
+| **Account** | Login required | None | **Konsolx** — no signup, no identity |
+| **Cost** | Free tier + paid plans | Free, no tiers | **Konsolx** — no subscription |
+| **Offline** | Needs connectivity for AI/sync | Fully offline | **Konsolx** — works on a plane |
+| **Multi-repo workspaces** | Manual, per-tab | One click opens N repos as labelled, color-coded tabs | **Konsolx** — built for it |
+| **Live env injection** | No | Swap env var sets into a *running* shell, no restart | **Konsolx** — unique |
+| **Per-tab env overrides** | No | Yes | **Konsolx** |
+| **Pinned log lines** | No | Pin a line, flash-jump back to it while debugging | **Konsolx** — unique |
+| **Persistent sessions** | Per-app | Server-side — close the window, shells live on | **Konsolx** |
+| **Quick commands** | AI suggests generic commands | You curate project-specific ones | **Tie** — different philosophy |
+| **Sharing setups** | Cloud "Drive" — live, account-bound, hosted by Warp | Export workspaces/envs/commands as JSON → commit to git → teammates import | **Tie** — Warp = live cloud sync; Konsolx = git-versioned config you own and review in PRs |
+| **AI command search** | Powerful agent | None (by design) | **Warp** — owns this lane |
+| **Rendering / speed** | GPU-native, buttery | xterm.js in Electron, heavier | **Warp** — far smoother |
+| **Command blocks** | Collapse, re-run, share | No | **Warp** |
+| **Cross-platform** | Mac, Linux, Windows | Linux only (for now) | **Warp** |
+| **Maturity / polish** | Funded team, years of QA | Solo, young, rough edges | **Warp** |
+| **Hackability** | Closed source | Open, self-hostable | **Konsolx** |
+
+**Pick Konsolx if** you want your repos, envs, and secrets organized in one private, offline, free place.
+**Pick Warp if** you want the slickest, AI-assisted place to type commands and don't mind the cloud.
+
+> ⚠️ **Sharing safely:** exported JSON includes env var *values*. When committing a shared `workspaces.json` to git, keep secrets out — export workspaces and commands, and leave secret values empty (use placeholders teammates fill in locally).
+
+---
+
 ## Building from source
 
 ```bash
