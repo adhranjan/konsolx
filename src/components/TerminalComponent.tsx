@@ -24,6 +24,7 @@ interface TerminalComponentProps {
   envId?:          string;
   vars?:           Record<string, string>;
   initialPins?:    Pin[];
+  quickCommands?:  string[];   // command strings for autosuggest boosting
   sortOrder?:      number;
   onClose:         () => void;
   onSessionReady?: (sessionId: string) => void;
@@ -33,7 +34,7 @@ interface TerminalComponentProps {
 
 const TerminalComponent: React.FC<TerminalComponentProps> = ({
   cwd, shell, initialCommand, isActive,
-  sessionId: existingSessionId, title, groupName, groupColor, envId, vars, initialPins, sortOrder,
+  sessionId: existingSessionId, title, groupName, groupColor, envId, vars, initialPins, quickCommands, sortOrder,
   onClose, onSessionReady, onSessionEnd, onInputReady,
 }) => {
   const terminalRef    = useRef<HTMLDivElement>(null);
@@ -57,6 +58,88 @@ const TerminalComponent: React.FC<TerminalComponentProps> = ({
   // Transient (live buffer only); not persisted. Falls back to text search if absent/disposed.
   const markersRef = useRef<Map<string, IMarker>>(new Map());
   const flashDecoRef = useRef<{ dispose(): void } | null>(null);
+
+  // ── Autosuggest (fish-style ghost text from Quick Commands + learned history) ──
+  const lineBufRef    = useRef('');                       // what the user has typed on the current line
+  const suggestRef    = useRef('');                       // full suggested command
+  const dataRef       = useRef<{ commands: { command: string; count: number; lastUsed: number }[]; sequences: { prev: string; next: string; count: number }[]; lastCommand: string | null }>({ commands: [], sequences: [], lastCommand: null });
+  const quickRef      = useRef<string[]>(quickCommands ?? []);
+  quickRef.current    = quickCommands ?? [];
+  const [ghost, setGhost] = useState<{ suffix: string; left: number; top: number } | null>(null);
+
+  const refetchSuggestions = () => {
+    const sid = sessionIdRef.current;
+    if (!sid) return;
+    terminalsApi.suggestions(sid).then(d => {
+      dataRef.current = { commands: d.commands, sequences: d.sequences, lastCommand: d.lastCommand };
+    }).catch(() => {});
+  };
+
+  // Rank candidates for the current line buffer. Returns the best full command or ''.
+  const computeSuggestion = (prefix: string): string => {
+    if (prefix.trim().length < 1) return '';
+    const last = dataRef.current.lastCommand;
+
+    // Score map: candidate -> score
+    const scores = new Map<string, number>();
+    const consider = (cmd: string, base: number) => {
+      if (!cmd.startsWith(prefix) || cmd.length <= prefix.length) return;
+      scores.set(cmd, Math.max(scores.get(cmd) ?? 0, base));
+    };
+
+    // 1. Follow-up: "after `git status` I do `git add`" — strongest signal
+    if (last) {
+      for (const s of dataRef.current.sequences) {
+        if (s.prev === last) consider(s.next, 100000 + s.count * 100);
+      }
+    }
+    // 2. Quick commands — curated, high boost
+    for (const qc of quickRef.current) consider(qc, 50000);
+    // 3. History — recency (newer wins) + frequency
+    const now = Date.now();
+    for (const h of dataRef.current.commands) {
+      const ageHours = (now - h.lastUsed) / 3_600_000;
+      const recency  = Math.max(0, 1000 - ageHours);   // decays over ~41 days
+      consider(h.command, recency + h.count * 10);
+    }
+
+    let best = '', bestScore = -1;
+    for (const [cmd, sc] of scores) if (sc > bestScore) { bestScore = sc; best = cmd; }
+    return best;
+  };
+
+  // Position the ghost overlay at the terminal's cursor.
+  const updateGhost = () => {
+    const term = xtermRef.current;
+    const prefix = lineBufRef.current;
+    const full = computeSuggestion(prefix);
+    suggestRef.current = full;
+    if (!term || !full) { setGhost(null); return; }
+
+    const screen = terminalRef.current?.querySelector('.xterm-screen') as HTMLElement | null;
+    if (!screen) { setGhost(null); return; }
+    const cellW = screen.clientWidth  / term.cols;
+    const cellH = screen.clientHeight / term.rows;
+    const buf   = term.buffer.active;
+    setGhost({
+      suffix: full.slice(prefix.length),
+      left: screen.offsetLeft + buf.cursorX * cellW,
+      top:  screen.offsetTop  + buf.cursorY * cellH,
+    });
+  };
+
+  const acceptSuggestion = () => {
+    const full = suggestRef.current;
+    const prefix = lineBufRef.current;
+    if (!full || full.length <= prefix.length) return false;
+    const suffix = full.slice(prefix.length);
+    const ws = wsRef.current;
+    if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'input', data: suffix }));
+    lineBufRef.current = full;
+    suggestRef.current = '';
+    setGhost(null);
+    return true;
+  };
 
   const syncPins = (next: Pin[]) => {
     setPins(next);
@@ -204,6 +287,7 @@ const TerminalComponent: React.FC<TerminalComponentProps> = ({
 
       ws.onopen = () => {
         ws.send(JSON.stringify({ type: 'attach', sessionId }));
+        refetchSuggestions();
 
         onInputReady?.((cmd: string) => {
           if (ws.readyState === WebSocket.OPEN) {
@@ -233,10 +317,51 @@ const TerminalComponent: React.FC<TerminalComponentProps> = ({
         if (ws.readyState === WebSocket.OPEN) {
           ws.send(JSON.stringify({ type: 'input', data }));
         }
+
+        // ── Track the typed line for autosuggest ──
+        if (data === '\r') {
+          // Enter — record the command, then reset and refresh suggestions
+          const cmd = lineBufRef.current;
+          lineBufRef.current = '';
+          suggestRef.current = '';
+          setGhost(null);
+          if (cmd.trim() && sessionIdRef.current) {
+            terminalsApi.recordCommand(sessionIdRef.current, cmd).catch(() => {});
+            setTimeout(refetchSuggestions, 150);   // pick up the new command + sequence edge
+          }
+        } else if (data === '\x7f') {
+          lineBufRef.current = lineBufRef.current.slice(0, -1);
+          requestAnimationFrame(updateGhost);
+        } else if (data === '\x03' || data === '\x15') {
+          // Ctrl-C / Ctrl-U — line aborted/cleared
+          lineBufRef.current = '';
+          suggestRef.current = '';
+          setGhost(null);
+        } else if (data.startsWith('\x1b')) {
+          // Escape sequence (arrow keys, history recall) — our line model is unreliable now
+          lineBufRef.current = '';
+          suggestRef.current = '';
+          setGhost(null);
+        } else if (/^[\x20-\x7e]+$/.test(data)) {
+          // Printable char(s) — typing or paste
+          lineBufRef.current += data;
+          requestAnimationFrame(updateGhost);
+        }
       });
     }).catch((err) => {
       term.write(`\r\n[Failed to start terminal: ${err.message}]\r\n`);
       setIsDisconnected(true);
+    });
+
+    // ── Accept autosuggest with Right-arrow / End ─────────────────────────────
+    term.attachCustomKeyEventHandler((e) => {
+      if (e.type !== 'keydown') return true;
+      if (suggestRef.current && (e.key === 'ArrowRight' || e.key === 'End')) {
+        // Only intercept if there's a pending suggestion — accept it
+        acceptSuggestion();
+        return false;   // don't forward the key to the PTY
+      }
+      return true;
     });
 
     // ── Ctrl+Shift+C → copy selection ────────────────────────────────────────
@@ -377,6 +502,22 @@ const TerminalComponent: React.FC<TerminalComponentProps> = ({
       {/* ── Terminal ──────────────────────────────────────────────────────── */}
       <div className="relative flex-1 min-h-0">
         <div ref={terminalRef} className="w-full h-full" />
+
+        {/* Ghost-text autosuggestion — faded suffix at the cursor */}
+        {ghost && (
+          <div
+            className="pointer-events-none absolute whitespace-pre z-10"
+            style={{
+              left: ghost.left, top: ghost.top,
+              fontFamily: '"JetBrains Mono", monospace',
+              fontSize: 14, lineHeight: '17px',
+              color: 'rgba(255,255,255,0.32)',
+            }}
+          >
+            {ghost.suffix}
+            <span className="ml-2 px-1 rounded bg-white/5 text-[9px] align-middle text-white/25">→</span>
+          </div>
+        )}
 
         {/* Pin toggle button */}
         {pins.length > 0 && (

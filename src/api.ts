@@ -51,6 +51,13 @@ export const quickCommandsApi = {
 };
 
 // ── Terminals ─────────────────────────────────────────────────────────────────
+export interface SuggestionData {
+  project:     string;
+  lastCommand: string | null;
+  commands:    { command: string; count: number; lastUsed: number }[];
+  sequences:   { prev: string; next: string; count: number }[];
+}
+
 export interface TerminalState {
   sessionId:   string;
   pid:         number;
@@ -91,6 +98,8 @@ export const terminalsApi = {
   killAll:   ()                                      => request<{ success: boolean }>("/api/terminals", { method: "DELETE" }),
   patchVars: (id: string, vars: Record<string, string>) => request<{ success: boolean }>(`/api/terminals/${id}/vars`, { method: "PATCH", body: JSON.stringify(vars) }),
   patchPins: (id: string, pins: { id: string; text: string; addedAt: number }[]) => request<{ success: boolean }>(`/api/terminals/${id}/pins`, { method: "PATCH", body: JSON.stringify(pins) }),
+  recordCommand: (id: string, command: string) => request<{ success: boolean }>(`/api/terminals/${id}/command`, { method: "POST", body: JSON.stringify({ command }) }),
+  suggestions:   (id: string) => request<SuggestionData>(`/api/terminals/${id}/suggestions`),
   applyEnv:  (id: string, envId: string)             => request<{ success: boolean }>(`/api/terminals/${id}/env/${envId}`, { method: "PUT" }),
 };
 

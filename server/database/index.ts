@@ -30,6 +30,22 @@ db.exec(`
     groupName TEXT,
     variables TEXT NOT NULL
   );
+  -- Local-only command learning. NEVER included in bulk export. Stays on this machine.
+  CREATE TABLE IF NOT EXISTS command_history (
+    project    TEXT NOT NULL,
+    command    TEXT NOT NULL,
+    count      INTEGER NOT NULL DEFAULT 1,
+    last_used  INTEGER NOT NULL,
+    PRIMARY KEY (project, command)
+  );
+  CREATE TABLE IF NOT EXISTS command_sequences (
+    project    TEXT NOT NULL,
+    prev       TEXT NOT NULL,
+    next       TEXT NOT NULL,
+    count      INTEGER NOT NULL DEFAULT 1,
+    last_used  INTEGER NOT NULL,
+    PRIMARY KEY (project, prev, next)
+  );
   CREATE TABLE IF NOT EXISTS quick_commands (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,

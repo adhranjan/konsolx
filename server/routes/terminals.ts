@@ -14,6 +14,7 @@ import {
   patchTerminalVars,
   patchPins,
 } from "../services/terminals.js";
+import { recordCommand, getSuggestions } from "../services/command-history.js";
 import { sessions } from "../sessions.js";
 
 const router = Router();
@@ -41,6 +42,19 @@ router.put("/terminals/:id", (req, res) => {
   const updated = updateTerminalMeta(req.params.id, req.body);
   if (!updated) return res.status(404).json({ error: "Session not found" });
   res.json({ success: true });
+});
+
+// Record a typed command (fire-and-forget). Secrets are scrubbed server-side.
+router.post("/terminals/:id/command", (req, res) => {
+  try {
+    recordCommand(req.params.id, req.body?.command ?? "");
+  } catch {}
+  res.json({ success: true });
+});
+
+// Get the suggestion dataset for this terminal's current project.
+router.get("/terminals/:id/suggestions", (req, res) => {
+  res.json(getSuggestions(req.params.id));
 });
 
 router.patch("/terminals/:id/pins", (req, res) => {

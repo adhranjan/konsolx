@@ -1389,6 +1389,7 @@ export default function App() {
                   envId={tab.envId}
                   vars={tab.vars}
                   initialPins={(tab as any).pins ?? []}
+                  quickCommands={quickCommands.map(q => q.command).filter(Boolean)}
                   sortOrder={tabs.indexOf(tab)}
                   onClose={() => closeTab(tab.id)}
                   onSessionReady={(sessionId) => {
