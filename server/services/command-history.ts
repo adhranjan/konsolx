@@ -1,7 +1,7 @@
-import fs from "fs";
-import { execSync } from "child_process";
+import { execFileSync } from "child_process";
 import { db } from "../database/index.js";
-import { sessions } from "../sessions.js";
+import { sessions, findInteractiveShell } from "../sessions.js";
+import { OS } from "../os/index.js";
 
 // ── Secret scrubbing ──────────────────────────────────────────────────────────
 // If a typed command looks like it carries a credential, we DROP it entirely —
@@ -21,60 +21,40 @@ function looksLikeSecret(cmd: string): boolean {
   return SECRET_PATTERNS.some(re => re.test(cmd));
 }
 
-// ── Project key resolution (live, server-side) ────────────────────────────────
-function resolveProjectKey(sessionId: string): string | null {
+// ── Project key resolution (live, server-side, cross-platform) ────────────────
+// Find the interactive shell, read its live cwd via the OS layer, then resolve
+// the git root (or fall back to the cwd / the session's initial cwd).
+async function resolveProjectKey(sessionId: string): Promise<string | null> {
   const session = sessions.get(sessionId);
   if (!session) return null;
   try {
-    // Read the interactive shell's live cwd, then its git root (or the cwd itself).
-    // findInteractiveShell is async; we approximate with the session pid tree synchronously.
-    const cwd = readShellCwd(session.pid);
+    const shellPid = (await findInteractiveShell(session.pid)) ?? session.pid;
+    const cwd = await OS.getProcessCwd(shellPid);
     if (!cwd) return session.cwd;
     try {
-      const root = execSync(`git -C "${cwd}" rev-parse --show-toplevel 2>/dev/null`, { encoding: "utf8" }).trim();
+      const root = execFileSync("git", ["-C", cwd, "rev-parse", "--show-toplevel"], {
+        encoding: "utf8", stdio: ["ignore", "pipe", "ignore"],
+      }).trim();
       return root || cwd;
     } catch {
-      return cwd;
+      return cwd;   // not a git repo
     }
   } catch {
     return session.cwd;
   }
 }
 
-// Walk the process tree from the session pid to find a shell, read /proc/<pid>/cwd.
-function readShellCwd(rootPid: number): string | null {
-  const tryRead = (pid: number): string | null => {
-    try { return fs.readlinkSync(`/proc/${pid}/cwd`); } catch { return null; }
-  };
-  // BFS through children looking for the deepest readable cwd (the interactive shell)
-  const seen = new Set<number>();
-  const queue = [rootPid];
-  let best: string | null = null;
-  while (queue.length) {
-    const pid = queue.shift()!;
-    if (seen.has(pid)) continue;
-    seen.add(pid);
-    const cwd = tryRead(pid);
-    if (cwd) best = cwd; // deeper children overwrite — closer to the actual shell
-    try {
-      const out = execSync(`ps -o pid= --ppid ${pid} 2>/dev/null`, { encoding: "utf8" });
-      out.trim().split("\n").filter(Boolean).forEach(c => queue.push(Number(c)));
-    } catch {}
-  }
-  return best;
-}
-
 // ── Per-session last command (in memory) for sequence edges ────────────────────
 const lastCommand = new Map<string, string>();
 
 // ── Record a typed command ────────────────────────────────────────────────────
-export function recordCommand(sessionId: string, raw: string): void {
+export async function recordCommand(sessionId: string, raw: string): Promise<void> {
   const command = raw.trim();
   if (!command) return;
   if (command.length < 2 || command.length > 500) return;
   if (looksLikeSecret(command)) return;          // drop credentials, never store
 
-  const project = resolveProjectKey(sessionId);
+  const project = await resolveProjectKey(sessionId);
   if (!project) return;
 
   const now = Date.now();
@@ -104,8 +84,8 @@ export interface SuggestionData {
   sequences: { prev: string; next: string; count: number }[];
 }
 
-export function getSuggestions(sessionId: string): SuggestionData {
-  const project = resolveProjectKey(sessionId) ?? "";
+export async function getSuggestions(sessionId: string): Promise<SuggestionData> {
+  const project = (await resolveProjectKey(sessionId)) ?? "";
   const commands = db.prepare(
     "SELECT command, count, last_used as lastUsed FROM command_history WHERE project = ? ORDER BY last_used DESC LIMIT 500"
   ).all(project) as any[];

@@ -120,7 +120,7 @@ export default function App() {
       setKillPortStatus({ message: err instanceof Error ? err.message : 'Request failed', type: 'error' });
     }
   };
-  const [serverConfig, setServerConfig] = useState<{ platform: string; isDev: boolean; availableShells: string[] } | null>(null);
+  const [serverConfig, setServerConfig] = useState<{ platform: string; isDev: boolean; availableShells: string[]; canSpawnTerminal: boolean } | null>(null);
 
   const syncTerminalTabs = () => {
     terminalsApi.list().then(sessions => {
@@ -792,6 +792,42 @@ export default function App() {
   const filteredCommands = commands.filter(c => 
     c.name.toLowerCase().includes(commandSearch.toLowerCase())
   );
+
+  // ── Capability gate ──────────────────────────────────────────────────────────
+  // If the runtime can't spawn a real terminal, block the whole UI with guidance
+  // instead of letting every terminal silently fail.
+  if (serverConfig && !serverConfig.canSpawnTerminal) {
+    const isWindows = serverConfig.platform === 'win32';
+    return (
+      <div className="flex flex-col items-center justify-center h-screen bg-[#0a0a0a] text-[#e0e0e0] font-sans px-6 text-center">
+        <AlertTriangle size={48} className="text-amber-400 mb-6" />
+        <h1 className="text-xl font-semibold mb-3">Konsolx can't start a terminal here</h1>
+        {isWindows ? (
+          <div className="max-w-md text-sm text-white/60 space-y-3">
+            <p>Windows isn't supported yet — a real terminal needs ConPTY (via <code className="text-emerald-400">node-pty</code>), which this build doesn't include.</p>
+            <p>Run Konsolx on <b>Linux</b> or <b>macOS</b> for now.</p>
+          </div>
+        ) : (
+          <div className="max-w-md text-sm text-white/60 space-y-4">
+            <p><b>python3</b> is required to spawn terminals but wasn't found on your machine.</p>
+            <div className="bg-white/5 border border-white/10 rounded-lg p-4 text-left font-mono text-xs space-y-1">
+              <div className="text-white/40 mb-1"># install it:</div>
+              <div>macOS &nbsp;→ <span className="text-emerald-400">xcode-select --install</span></div>
+              <div>Fedora →&nbsp; <span className="text-emerald-400">sudo dnf install python3</span></div>
+              <div>Debian →&nbsp; <span className="text-emerald-400">sudo apt install python3</span></div>
+              <div>Arch &nbsp;&nbsp;→ <span className="text-emerald-400">sudo pacman -S python</span></div>
+            </div>
+            <button
+              onClick={() => configApi.get().then(setServerConfig).catch(() => {})}
+              className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-md text-sm font-medium transition-colors"
+            >
+              Re-check
+            </button>
+          </div>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col h-screen bg-[#0a0a0a] text-[#e0e0e0] font-sans overflow-hidden">

@@ -1,9 +1,9 @@
-import { spawn, ChildProcessWithoutNullStreams } from "child_process";
 import { WebSocket } from "ws";
+import type { IPty } from "node-pty";
 import fs from "fs";
 import path from "path";
 import crypto from "crypto";
-import { OSInterface, SpawnShellOptions } from "./os-interface.js";
+import { OS, SpawnShellOptions, SHELL_NAMES } from "./os/index.js";
 import { terminalSessionDb } from "./database/terminal-sessions.js";
 
 // ── Stale PID tracking ───────────────────────────────────────────────────────
@@ -28,14 +28,15 @@ const flushPids = () => {
 const stale = readTrackedPids();
 if (stale.length > 0) {
   console.log(`[sessions] Cleaning up ${stale.length} stale shell(s) from previous run...`);
-  for (const pid of stale) { try { process.kill(pid, "SIGKILL"); } catch {} }
+  for (const pid of stale) OS.killProcess(pid);
   fs.unlink(SHELL_PIDS_FILE, () => {});
 }
 // ────────────────────────────────────────────────────────────────────────────
 
 export interface TerminalSession {
   sessionId:   string;
-  shell:       ChildProcessWithoutNullStreams;
+  shell:       IPty;
+  shellName:   string;   // resolved shell (e.g. "bash", "pwsh") — picks the dialect
   pid:         number;
   cwd:         string;
   clients:     Set<WebSocket>;
@@ -55,35 +56,15 @@ const BUFFER_MAX = 50_000;
 
 export const sessions = new Map<string, TerminalSession>();
 
-// ── Process tree helpers ─────────────────────────────────────────────────────
-const getChildPids = (pid: number): Promise<number[]> =>
-  new Promise(resolve => {
-    const p = spawn("ps", ["-o", "pid=", "--ppid", String(pid)]);
-    let out = "";
-    p.stdout.on("data", d => out += d.toString());
-    p.on("close", () => resolve(out.trim().split("\n").filter(Boolean).map(Number)));
-    p.on("error", () => resolve([]));
-  });
-
-const SHELL_NAMES = new Set(["bash", "zsh", "sh", "fish", "ksh", "dash"]);
-
-const getComm = (pid: number): Promise<string> =>
-  new Promise(resolve => {
-    const p = spawn("ps", ["-o", "comm=", "-p", String(pid)]);
-    let out = "";
-    p.stdout.on("data", d => out += d.toString());
-    p.on("close", () => resolve(out.trim()));
-    p.on("error", () => resolve(""));
-  });
-
+// ── Process tree helpers (delegate OS-specifics to the OS layer) ──────────────
 export const findInteractiveShell = async (rootPid: number, depth = 0): Promise<number | null> => {
   if (depth > 10) return null;
-  const children = await getChildPids(rootPid);
+  const children = await OS.getChildPids(rootPid);
   for (const child of children) {
     const found = await findInteractiveShell(child, depth + 1);
     if (found) return found;
   }
-  const comm = await getComm(rootPid);
+  const comm = await OS.getComm(rootPid);
   return SHELL_NAMES.has(comm) ? rootPid : null;
 };
 
@@ -92,7 +73,7 @@ export const isBusy = async (sessionId: string): Promise<boolean> => {
   if (!session) return false;
   const shellPid = await findInteractiveShell(session.pid);
   if (!shellPid) return false;
-  const children = await getChildPids(shellPid);
+  const children = await OS.getChildPids(shellPid);
   return children.length > 0;
 };
 // ────────────────────────────────────────────────────────────────────────────
@@ -109,13 +90,15 @@ export interface CreateSessionOptions extends SpawnShellOptions {
 
 export function createSession(opts: CreateSessionOptions): TerminalSession {
   const sessionId = crypto.randomUUID();
-  const shell     = OSInterface.spawnShell(opts);
+  const shellName = opts.shell ?? OS.defaultShell;
+  const shell     = OS.spawnShell({ ...opts, shell: shellName });
 
   if (!shell.pid) throw new Error("Failed to spawn shell — no PID assigned");
 
   const session: TerminalSession = {
     sessionId,
     shell,
+    shellName,
     pid:        shell.pid,
     cwd:        opts.cwd ?? process.cwd(),
     clients:    new Set(),
@@ -135,32 +118,20 @@ export function createSession(opts: CreateSessionOptions): TerminalSession {
   flushPids();
   terminalSessionDb.upsert(session);
 
-  shell.stdout.on("data", (data: Buffer) => {
-    const text = data.toString();
+  // node-pty merges stdout+stderr into a single onData stream
+  shell.onData((text: string) => {
     session.buffer += text;
     if (session.buffer.length > BUFFER_MAX) session.buffer = session.buffer.slice(-BUFFER_MAX);
     broadcast(session, { type: "output", data: text });
   });
 
-  shell.stderr.on("data", (data: Buffer) => {
-    const text = data.toString();
-    session.buffer += text;
-    if (session.buffer.length > BUFFER_MAX) session.buffer = session.buffer.slice(-BUFFER_MAX);
-    broadcast(session, { type: "output", data: text });
-  });
-
-  shell.on("exit", (code) => {
+  shell.onExit(({ exitCode }) => {
     let msg = "\r\n[Terminal session ended]\r\n";
-    if (code === 127) msg += "[Error: Command not found]\r\n";
-    if (code === 126) msg += "[Error: Permission denied]\r\n";
-    broadcast(session, { type: "exit", code, message: msg });
-    // Close all attached WebSockets — cleanup handled by their close handlers
+    if (exitCode === 127) msg += "[Error: Command not found]\r\n";
+    if (exitCode === 126) msg += "[Error: Permission denied]\r\n";
+    broadcast(session, { type: "exit", code: exitCode, message: msg });
     for (const ws of session.clients) ws.close();
     deleteSession(sessionId);
-  });
-
-  shell.on("error", (err: any) => {
-    broadcast(session, { type: "output", data: `\r\n[Error: ${err.message}]\r\n` });
   });
 
   return session;
@@ -175,31 +146,8 @@ export async function deleteSession(sessionId: string): Promise<void> {
   flushPids();
   terminalSessionDb.delete(sessionId);
 
-  const pid = session.pid;
-
-  // Collect full tree first, then kill — avoids re-parenting to init hiding grandchildren
-  const collectTree = async (rootPid: number): Promise<number[]> => {
-    const children = await getChildPids(rootPid);
-    const subtrees = await Promise.all(children.map(collectTree));
-    return [rootPid, ...subtrees.flat()];
-  };
-
-  try {
-    const allPids = await collectTree(pid);
-    for (const p of [...allPids].reverse()) { try { process.kill(p, "SIGKILL"); } catch {} }
-
-    // Also kill by process group in case any child escaped the tree
-    const pgid = await new Promise<number>(resolve => {
-      const p = spawn("ps", ["-o", "pgid=", "-p", String(pid)]);
-      let out = "";
-      p.stdout.on("data", d => out += d.toString());
-      p.on("close", () => resolve(Number(out.trim()) || 0));
-      p.on("error", () => resolve(0));
-    });
-    if (pgid > 1) { try { process.kill(-pgid, "SIGKILL"); } catch {} }
-  } catch {
-    try { process.kill(pid, "SIGKILL"); } catch {}
-  }
+  // Kill the whole subtree — platform-specific strategy lives in the OS layer.
+  await OS.killProcessTree(session.pid);
 }
 
 export function broadcast(session: TerminalSession, msg: object): void {

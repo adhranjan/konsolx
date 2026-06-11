@@ -17,9 +17,10 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
 // ── Config ────────────────────────────────────────────────────────────────────
 export interface ServerConfig {
-  platform:        string;
-  isDev:           boolean;
-  availableShells: string[];
+  platform:          string;
+  isDev:             boolean;
+  availableShells:   string[];
+  canSpawnTerminal:  boolean;
 }
 
 export const configApi = {

@@ -1,5 +1,4 @@
 import path from "path";
-import { OSInterface } from "../os-interface.js";
 import {
   sessions,
   createSession,
@@ -12,6 +11,7 @@ import {
 import { environmentDb } from "../database/environments.js";
 import { terminalSessionDb } from "../database/terminal-sessions.js";
 import { settingsDb } from "../database/settings.js";
+import { getDialect } from "../shell/index.js";
 
 export interface TerminalState {
   sessionId:   string;
@@ -107,14 +107,13 @@ export async function applyEnvToTerminal(sessionId: string, envId: string): Prom
   const env = environmentDb.list().find(e => e.id === envId);
   if (!env) throw new Error("Environment not found");
 
-  if (!session.shell.stdin.writable) throw new Error("Shell stdin not writable");
-
   // Refuse if a program is currently running
   if (await isBusy(sessionId)) throw new Error("Terminal is busy");
 
+  const dialect = getDialect(session.shellName);
   const exports = env.variables
     .filter(v => v.key.trim())
-    .map(({ key, value }) => `export ${key}=${JSON.stringify(value)}`)
+    .map(({ key, value }) => dialect.exportVar(key, value))
     .join("\n");
 
   // Write exports + sentinel in one shot
@@ -124,25 +123,23 @@ export async function applyEnvToTerminal(sessionId: string, envId: string): Prom
     const TIMEOUT_MS = 5000;
     let buf = "";
 
-    const onData = (chunk: Buffer) => {
-      buf += chunk.toString();
+    const disposable = session.shell.onData((chunk: string) => {
+      buf += chunk;
       if (buf.includes(SENTINEL)) {
-        session.shell.stdout.removeListener("data", onData);
+        disposable.dispose();
         clearTimeout(timer);
         resolve();
       }
-    };
+    });
 
     const timer = setTimeout(() => {
-      session.shell.stdout.removeListener("data", onData);
+      disposable.dispose();
       reject(new Error("Timed out waiting for shell confirmation"));
     }, TIMEOUT_MS);
 
-    session.shell.stdout.on("data", onData);
-
     // Write exports (if any) then the sentinel echo
-    if (exports) session.shell.stdin.write(`${exports}\n`);
-    session.shell.stdin.write(`echo ${SENTINEL}\n`);
+    if (exports) session.shell.write(`${exports}\n`);
+    session.shell.write(`${dialect.echo(SENTINEL)}\n`);
   });
 
   session.envId = envId;
@@ -153,7 +150,6 @@ export async function applyEnvToTerminal(sessionId: string, envId: string): Prom
 export function patchTerminalVars(sessionId: string, patch: Record<string, string>): void {
   const session = sessions.get(sessionId);
   if (!session) throw new Error("Session not found");
-  if (!session.shell.stdin.writable) throw new Error("Shell stdin not writable");
 
   // Merge: remove keys with empty value, set the rest
   const updated = { ...session.vars };
@@ -164,16 +160,13 @@ export function patchTerminalVars(sessionId: string, patch: Record<string, strin
   session.vars = updated;
 
   // Inject only the patched keys into the live shell
+  const dialect = getDialect(session.shellName);
   const exports = Object.entries(patch)
     .filter(([key]) => key.trim())
-    .map(([key, value]) =>
-      value === ""
-        ? `unset ${key}`
-        : `export ${key}=${JSON.stringify(value)}`
-    )
+    .map(([key, value]) => value === "" ? dialect.unsetVar(key) : dialect.exportVar(key, value))
     .join("\n");
 
-  if (exports) session.shell.stdin.write(`${exports}\n`);
+  if (exports) session.shell.write(`${exports}\n`);
   terminalSessionDb.upsert(session);
 }
 
@@ -196,6 +189,7 @@ export { deleteSession as killTerminal, attachClient, detachClient };
 
 function sendSetupCommands(session: TerminalSession, opts: CreateTerminalOptions): void {
   const { cwd, envId, vars, initialCommand } = opts;
+  const dialect = getDialect(session.shellName);
 
   // 1. Resolve envId vars from DB
   let envExports = "";
@@ -204,7 +198,7 @@ function sendSetupCommands(session: TerminalSession, opts: CreateTerminalOptions
     if (env) {
       envExports = env.variables
         .filter(v => v.key.trim())
-        .map(({ key, value }) => `export ${key}=${JSON.stringify(value)}`)
+        .map(({ key, value }) => dialect.exportVar(key, value))
         .join("\n");
     }
   }
@@ -213,7 +207,7 @@ function sendSetupCommands(session: TerminalSession, opts: CreateTerminalOptions
   const varExports = vars && Object.keys(vars).length > 0
     ? Object.entries(vars)
         .filter(([key]) => key.trim())
-        .map(([key, value]) => `export ${key}=${JSON.stringify(value)}`)
+        .map(([key, value]) => dialect.exportVar(key, value))
         .join("\n")
     : "";
 
@@ -221,38 +215,31 @@ function sendSetupCommands(session: TerminalSession, opts: CreateTerminalOptions
   if (!hasSetup) return;
 
   let promptDetected = false;
-  const PROMPT_RE = /[\$#%>]\s*$/m;
   let buf = "";
 
-  const onPrompt = () => {
-    if (!session.shell.stdin.writable) return;
-    if (envExports) session.shell.stdin.write(`${envExports}\n`);
-    if (varExports) session.shell.stdin.write(`${varExports}\n`);
-    if (cwd && path.isAbsolute(cwd)) session.shell.stdin.write(`cd "${cwd}"\n`);
-    if (initialCommand) session.shell.stdin.write(`${initialCommand}\n`);
+  const writeSetup = () => {
+    if (envExports) session.shell.write(`${envExports}\n`);
+    if (varExports) session.shell.write(`${varExports}\n`);
+    if (cwd && path.isAbsolute(cwd)) session.shell.write(`${dialect.changeDir(cwd)}\n`);
+    if (initialCommand) session.shell.write(`${initialCommand}\n`);
   };
 
-  const waitForPrompt = (chunk: Buffer) => {
+  // Watch the pty output until the shell prompt appears, then inject setup
+  const disposable = session.shell.onData((chunk: string) => {
     if (promptDetected) return;
-    buf += chunk.toString();
+    buf += chunk;
     if (buf.length > 512) buf = buf.slice(-512);
-    if (!PROMPT_RE.test(buf)) return;
+    if (!dialect.promptPattern.test(buf)) return;
     promptDetected = true;
-    onPrompt();
-  };
-
-  session.shell.stdout.once("data", function listen(chunk) {
-    waitForPrompt(chunk);
-    if (!promptDetected) session.shell.stdout.once("data", listen);
+    disposable.dispose();
+    writeSetup();
   });
 
+  // Fallback: send anyway after 5s if the prompt was never detected
   setTimeout(() => {
-    if (!promptDetected && session.shell.stdin.writable) {
-      promptDetected = true;
-      if (envExports) session.shell.stdin.write(`${envExports}\n`);
-      if (varExports) session.shell.stdin.write(`${varExports}\n`);
-      if (cwd && path.isAbsolute(cwd)) session.shell.stdin.write(`cd "${cwd}"\n`);
-      if (initialCommand) session.shell.stdin.write(`${initialCommand}\n`);
-    }
+    if (promptDetected) return;
+    promptDetected = true;
+    disposable.dispose();
+    writeSetup();
   }, 5000);
 }

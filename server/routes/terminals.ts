@@ -46,15 +46,13 @@ router.put("/terminals/:id", (req, res) => {
 
 // Record a typed command (fire-and-forget). Secrets are scrubbed server-side.
 router.post("/terminals/:id/command", (req, res) => {
-  try {
-    recordCommand(req.params.id, req.body?.command ?? "");
-  } catch {}
+  recordCommand(req.params.id, req.body?.command ?? "").catch(() => {});
   res.json({ success: true });
 });
 
 // Get the suggestion dataset for this terminal's current project.
-router.get("/terminals/:id/suggestions", (req, res) => {
-  res.json(getSuggestions(req.params.id));
+router.get("/terminals/:id/suggestions", async (req, res) => {
+  res.json(await getSuggestions(req.params.id));
 });
 
 router.patch("/terminals/:id/pins", (req, res) => {
@@ -121,10 +119,13 @@ export function handleWebSocket(ws: WebSocket & { isAlive?: boolean }, req: Inco
 
     } else if (msg.type === "input" && sessionId) {
       const session = sessions.get(sessionId);
-      if (session?.shell.stdin.writable) session.shell.stdin.write(msg.data);
+      try { session?.shell.write(msg.data); } catch { /* shell gone */ }
 
     } else if (msg.type === "resize" && sessionId) {
-      // PTY resize — placeholder for node-pty migration
+      const session = sessions.get(sessionId);
+      if (session && msg.cols > 0 && msg.rows > 0) {
+        try { session.shell.resize(msg.cols, msg.rows); } catch { /* shell gone */ }
+      }
     }
   });
 
