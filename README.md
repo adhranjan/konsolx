@@ -23,15 +23,26 @@ Konsolx solves all three.
 
 **Requirements:** Linux (Fedora, Ubuntu, Arch, etc.)
 
+**One-line install** — downloads the latest release, sets up the app menu entry:
+
 ```bash
-git clone https://github.com/adhranjan/konsolx.git
-cd konsolx
-npm install
-npm run build
-npm run electron:dev
+curl -fsSL https://raw.githubusercontent.com/adhranjan/konsolx/main/install.sh | bash
 ```
 
-Or download the latest `.AppImage` / `.rpm` from [Releases](https://github.com/adhranjan/konsolx/releases) and run it directly — no install needed.
+Then launch **Konsolx** from your app menu. Re-run the same command to update.
+
+<details>
+<summary>Or download / build manually</summary>
+
+- Grab the latest `.AppImage` from [Releases](https://github.com/adhranjan/konsolx/releases), `chmod +x` it, and run.
+- Or build from source:
+  ```bash
+  git clone https://github.com/adhranjan/konsolx.git
+  cd konsolx
+  npm install
+  npm run electron:dev
+  ```
+</details>
 
 ---
 

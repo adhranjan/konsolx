@@ -71,6 +71,8 @@ export default function App() {
   const [tabVars, setTabVars] = useState<Record<string, string>>({});
   const [expandedWorkspaces, setExpandedWorkspaces] = useState<Set<string>>(new Set());
   const [collapsedEnvGroups, setCollapsedEnvGroups] = useState<Set<string>>(new Set());
+  const [wsSectionOpen, setWsSectionOpen]   = useState(true);
+  const [envSectionOpen, setEnvSectionOpen] = useState(true);
   const [collapsedQcGroups, setCollapsedQcGroups] = useState<Set<string>>(new Set());
   const [qcName, setQcName] = useState('');
   const [qcCommand, setQcCommand] = useState('');
@@ -936,7 +938,7 @@ export default function App() {
           </div>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-2 space-y-6">
+        <div className="flex-1 overflow-y-auto p-2 flex flex-col gap-6">
           {/* Shell Selection */}
           <div className="px-2">
             <div className="flex items-center gap-2 mb-2">
@@ -971,7 +973,7 @@ export default function App() {
             </div>
           )}
           {/* Quick Commands */}
-          <div className="mb-6">
+          <div className="order-1">
             <div className="flex items-center justify-between px-2 mb-2">
               <span className="text-xs font-bold text-white/40 uppercase tracking-wider flex items-center gap-2">
                 <Play size={12} /> Quick Commands
@@ -1066,15 +1068,20 @@ export default function App() {
           </div>
 
           {/* Workspaces */}
-          <div>
+          <div className="order-3">
             <div className="flex items-center justify-between px-2 mb-2">
-              <span className="text-xs font-bold text-white/40 uppercase tracking-wider flex items-center gap-2">
+              <button
+                onClick={() => setWsSectionOpen(o => !o)}
+                className="text-xs font-bold text-white/40 uppercase tracking-wider flex items-center gap-2 hover:text-white/70 transition-colors"
+              >
+                {wsSectionOpen ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
                 <Layers size={12} /> Workspaces
-              </span>
+              </button>
               <button onClick={() => openWsModal()} className="p-1 hover:bg-white/5 rounded text-white/40 hover:text-white">
                 <Plus size={14} />
               </button>
             </div>
+            {wsSectionOpen && (
             <div className="space-y-1">
               {workspaces.map(ws => (
                 <div key={ws.id} className="group flex flex-col rounded hover:bg-white/5 transition-colors">
@@ -1145,18 +1152,24 @@ export default function App() {
                 </div>
               ))}
             </div>
+            )}
           </div>
 
           {/* Environments */}
-          <div>
+          <div className="order-2">
             <div className="flex items-center justify-between px-2 mb-2">
-              <span className="text-xs font-bold text-white/40 uppercase tracking-wider flex items-center gap-2">
+              <button
+                onClick={() => setEnvSectionOpen(o => !o)}
+                className="text-xs font-bold text-white/40 uppercase tracking-wider flex items-center gap-2 hover:text-white/70 transition-colors"
+              >
+                {envSectionOpen ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
                 <Globe size={12} /> Environments
-              </span>
+              </button>
               <button onClick={() => openEnvModal()} className="p-1 hover:bg-white/5 rounded text-white/40 hover:text-white">
                 <Plus size={14} />
               </button>
             </div>
+            {envSectionOpen && (
             <div className="space-y-3">
               {Object.entries(
                 environments.reduce((acc, env) => {
@@ -1248,6 +1261,7 @@ export default function App() {
                 );
               })}
             </div>
+            )}
           </div>
         </div>
       </motion.div>
