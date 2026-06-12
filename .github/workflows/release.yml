@@ -22,26 +22,10 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Install ImageMagick (for icon generation)
-        run: sudo apt-get install -y imagemagick
-
-      - name: Generate icons
-        run: |
-          mkdir -p build-assets
-          for size in 16 32 48 64 128 256 512; do
-            convert -background none -density 300 public/favicon.svg -resize ${size}x${size} build-assets/${size}x${size}.png
-          done
-
-      - name: Build frontend + server
-        run: npm run build
-
-      - name: Build Electron main
-        run: npm run build:electron
-
-      - name: Rebuild native modules for Electron
-        run: npx electron-rebuild -f -w better-sqlite3
+      # Icons are committed in build-assets/ — no generation needed.
 
       - name: Package AppImage
+        # electron:build runs: vite build + tsc + electron-rebuild (sqlite + node-pty) + electron-builder
         run: npm run electron:build
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
