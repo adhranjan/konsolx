@@ -41,12 +41,15 @@ say "Downloading ${APP_NAME}…"
 curl -fsSL "${ASSET_URL}" -o "${APP_PATH}"
 chmod +x "${APP_PATH}"
 
-# ── 5. Icon (extract from the AppImage if possible, else skip) ────────────────
+# ── 5. Icon (extract the AppImage's .DirIcon) ─────────────────────────────────
 ICON_PATH="${ICON_DIR}/konsolx.png"
-( cd /tmp && "${APP_PATH}" --appimage-extract '*.png' >/dev/null 2>&1 \
-    && find /tmp/squashfs-root -name "*.png" 2>/dev/null | sort | tail -n1 \
-       | xargs -I{} cp {} "${ICON_PATH}" 2>/dev/null \
-    && rm -rf /tmp/squashfs-root ) || true
+EXTRACT_DIR="$(mktemp -d)"
+( cd "${EXTRACT_DIR}" && "${APP_PATH}" --appimage-extract >/dev/null 2>&1 ) || true
+if [ -f "${EXTRACT_DIR}/squashfs-root/.DirIcon" ]; then
+  cp -L "${EXTRACT_DIR}/squashfs-root/.DirIcon" "${ICON_PATH}" 2>/dev/null || true
+fi
+rm -rf "${EXTRACT_DIR}"
+gtk-update-icon-cache "${ICON_DIR}" 2>/dev/null || true
 
 # ── 6. Desktop entry ──────────────────────────────────────────────────────────
 say "Creating desktop entry…"
