@@ -84,3 +84,19 @@ if (tscols && !tscols.some((c: any) => c.name === "pins")) {
 }
 
 db.prepare("DELETE FROM workspaces WHERE id = 'sample-work'").run();
+
+// Seed the built-in "Update Konsolx" quick command ONCE. Using a settings flag
+// (not INSERT OR IGNORE) so that if the user deletes it, it stays deleted.
+const seededUpdateCmd = db.prepare("SELECT value FROM settings WHERE key = 'seed:update-cmd'").get();
+if (!seededUpdateCmd) {
+  db.prepare(
+    "INSERT OR REPLACE INTO quick_commands (id, name, command, cwd, grp) VALUES (?, ?, ?, ?, ?)"
+  ).run(
+    "konsolx-update",
+    "Update Konsolx",
+    "curl -fsSL https://raw.githubusercontent.com/adhranjan/konsolx/main/install.sh | bash",
+    null,
+    "Konsolx",
+  );
+  db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('seed:update-cmd', '1')").run();
+}

@@ -73,6 +73,7 @@ export default function App() {
   const [collapsedEnvGroups, setCollapsedEnvGroups] = useState<Set<string>>(new Set());
   const [wsSectionOpen, setWsSectionOpen]   = useState(true);
   const [envSectionOpen, setEnvSectionOpen] = useState(true);
+  const [envCtxMenu, setEnvCtxMenu] = useState<{ x: number; y: number; envId: string } | null>(null);
   const [collapsedQcGroups, setCollapsedQcGroups] = useState<Set<string>>(new Set());
   const [qcName, setQcName] = useState('');
   const [qcCommand, setQcCommand] = useState('');
@@ -84,15 +85,20 @@ export default function App() {
   const [isKillPortModalOpen, setIsKillPortModalOpen] = useState(false);
   const tabSessionsRef = useRef<Map<string, string>>(new Map());
   const tabInputsRef = useRef<Map<string, (cmd: string) => void>>(new Map());
-  const [apiErrorToast, setApiErrorToast] = useState<{ message: string; isBusy: boolean } | null>(null);
+  const [apiErrorToast, setApiErrorToast] = useState<{ message: string; kind: 'error' | 'busy' | 'info' } | null>(null);
   const apiErrorTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const showToast = (message: string, kind: 'error' | 'busy' | 'info' = 'info', ms = 3500) => {
+    if (apiErrorTimer.current) clearTimeout(apiErrorTimer.current);
+    setApiErrorToast({ message, kind });
+    apiErrorTimer.current = setTimeout(() => setApiErrorToast(null), ms);
+  };
 
   useEffect(() => {
     const handler = (e: Event) => {
       const { message, status } = (e as CustomEvent<{ message: string; status: number; path: string }>).detail;
-      if (apiErrorTimer.current) clearTimeout(apiErrorTimer.current);
-      setApiErrorToast({ message, isBusy: status === 409 || message.toLowerCase().includes("busy") });
-      apiErrorTimer.current = setTimeout(() => setApiErrorToast(null), 4000);
+      const busy = status === 409 || message.toLowerCase().includes("busy");
+      showToast(message, busy ? 'busy' : 'error', 4000);
     };
     window.addEventListener("api:error", handler);
     return () => window.removeEventListener("api:error", handler);
@@ -583,6 +589,47 @@ export default function App() {
     setIsQuickCommandModalOpen(false);
   };
 
+  // Apply an environment to a single tab's live shell.
+  const applyEnvToTab = async (tabId: string, envId: string): Promise<'applied' | 'busy' | 'failed' | 'no-session'> => {
+    const sessionId = tabSessionsRef.current.get(tabId);
+    if (!sessionId) {
+      // No live shell yet — just record the choice for when it spawns
+      setTabs(prev => prev.map(t => t.id === tabId ? { ...t, envId } : t));
+      return 'no-session';
+    }
+    try {
+      await terminalsApi.applyEnv(sessionId, envId);
+      setTabs(prev => prev.map(t => t.id === tabId ? { ...t, envId } : t));
+      return 'applied';
+    } catch (err: any) {
+      return err?.message?.toLowerCase().includes('busy') ? 'busy' : 'failed';
+    }
+  };
+
+  // Apply to the active terminal only.
+  const applyEnvToActive = (envId: string) => {
+    if (activeTabId) applyEnvToTab(activeTabId, envId);
+  };
+
+  // Apply to every terminal in the active tab's group, with a summary toast.
+  const applyEnvToGroup = async (envId: string) => {
+    const active = tabs.find(t => t.id === activeTabId);
+    if (!active) return;
+    const groupTabs = active.groupOrder !== undefined
+      ? tabs.filter(t => t.groupOrder === active.groupOrder)
+      : [active];
+
+    const results = await Promise.all(groupTabs.map(t => applyEnvToTab(t.id, envId)));
+    const applied = results.filter(r => r === 'applied' || r === 'no-session').length;
+    const busy    = results.filter(r => r === 'busy').length;
+    const failed  = results.filter(r => r === 'failed').length;
+
+    const parts = [`Applied to ${applied}`];
+    if (busy)   parts.push(`${busy} busy`);
+    if (failed) parts.push(`${failed} failed`);
+    showToast(parts.join(' · '), busy || failed ? 'busy' : 'info');
+  };
+
   const deleteQuickCommand = (id: string) => {
     confirm('Delete this quick command?', async () => {
       await quickCommandsApi.delete(id);
@@ -801,6 +848,7 @@ export default function App() {
     c.name.toLowerCase().includes(commandSearch.toLowerCase())
   );
 
+  
   // ── Capability gate ──────────────────────────────────────────────────────────
   // node-pty powers terminals on every platform. This only fires if the native
   // module failed to initialize (e.g. not built for the current Node/Electron).
@@ -1220,23 +1268,9 @@ export default function App() {
                       return (
                       <div
                         key={env.id}
-                        onClick={async () => {
-                          if (!activeTabId) return;
-                          const sessionId = tabSessionsRef.current.get(activeTabId);
-                          if (sessionId) {
-                            try {
-                              await terminalsApi.applyEnv(sessionId, env.id);
-                              // Only update tab state after shell confirms
-                              setTabs(prev => prev.map(t => t.id === activeTabId ? { ...t, envId: env.id } : t));
-                            } catch {
-                              // api:error event fired from request() — global toast handles it
-                              // Don't update envId — env was not applied
-                            }
-                          } else {
-                            // No live session yet — just record for when it spawns
-                            setTabs(prev => prev.map(t => t.id === activeTabId ? { ...t, envId: env.id } : t));
-                          }
-                        }}
+                        onClick={() => applyEnvToActive(env.id)}
+                        onContextMenu={(e) => { e.preventDefault(); setEnvCtxMenu({ x: e.clientX, y: e.clientY, envId: env.id }); }}
+                        title="Click: apply to active terminal · Right-click: more"
                         className={`group flex items-center gap-2 px-2 py-1.5 rounded cursor-pointer transition-colors ${currentEnvId === env.id ? 'bg-emerald-500/10 text-emerald-400' : 'hover:bg-white/5'}`}
                       >
                         <div className="flex-1 flex flex-col min-w-0">
@@ -2013,7 +2047,33 @@ export default function App() {
         )}
       </AnimatePresence>
 
-      {/* Single toast — amber for busy, red for errors */}
+      {/* Environment apply context menu */}
+      {envCtxMenu && (
+        <div className="fixed inset-0 z-[250]" onClick={() => setEnvCtxMenu(null)} onContextMenu={(e) => { e.preventDefault(); setEnvCtxMenu(null); }}>
+          <div
+            className="absolute bg-[#1a1a1a] border border-white/10 rounded-lg shadow-2xl py-1 min-w-[200px]"
+            style={{ left: envCtxMenu.x, top: envCtxMenu.y }}
+            onClick={e => e.stopPropagation()}
+          >
+            <button
+              className="w-full flex items-center gap-2 px-3 py-2 text-xs hover:bg-white/5 text-white/70 hover:text-white transition-colors"
+              onClick={() => { applyEnvToActive(envCtxMenu.envId); setEnvCtxMenu(null); }}
+            >
+              <Settings size={12} className="text-orange-400" />
+              Apply to current terminal
+            </button>
+            <button
+              className="w-full flex items-center gap-2 px-3 py-2 text-xs hover:bg-white/5 text-white/70 hover:text-white transition-colors"
+              onClick={() => { applyEnvToGroup(envCtxMenu.envId); setEnvCtxMenu(null); }}
+            >
+              <Layers size={12} className="text-blue-400" />
+              Apply to current group
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Single toast — amber=busy, red=error, emerald=info */}
       <AnimatePresence>
         {apiErrorToast && (
           <motion.div
@@ -2022,8 +2082,10 @@ export default function App() {
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 10, scale: 0.95 }}
             className={`fixed bottom-4 right-4 z-[200] flex items-center gap-2 px-3 py-2 rounded-lg text-xs shadow-xl border ${
-              apiErrorToast.isBusy
+              apiErrorToast.kind === 'busy'
                 ? 'bg-amber-500/10 border-amber-500/20 text-amber-400'
+                : apiErrorToast.kind === 'info'
+                ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400'
                 : 'bg-red-500/10 border-red-500/20 text-red-400'
             }`}
           >
