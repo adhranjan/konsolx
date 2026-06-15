@@ -574,6 +574,12 @@ export default function App() {
       await quickCommandsApi.create(qc);
       setQuickCommands(prev => [...prev, qc]);
     }
+    // Make sure the group it landed in is expanded, so the item is visible
+    if (qc.group) setCollapsedQcGroups(prev => {
+      const next = new Set(prev);
+      next.delete(qc.group!);
+      return next;
+    });
     setIsQuickCommandModalOpen(false);
   };
 
