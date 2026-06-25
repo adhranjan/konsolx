@@ -72,6 +72,7 @@ export default function App() {
   const [expandedWorkspaces, setExpandedWorkspaces] = useState<Set<string>>(new Set());
   const [collapsedEnvGroups, setCollapsedEnvGroups] = useState<Set<string>>(new Set());
   const [wsSectionOpen, setWsSectionOpen]   = useState(true);
+  const [wsSearch, setWsSearch]             = useState('');
   const [envSectionOpen, setEnvSectionOpen] = useState(true);
   const [envCtxMenu, setEnvCtxMenu] = useState<{ x: number; y: number; envId: string } | null>(null);
   const [collapsedQcGroups, setCollapsedQcGroups] = useState<Set<string>>(new Set());
@@ -1137,7 +1138,26 @@ export default function App() {
             </div>
             {wsSectionOpen && (
             <div className="space-y-1">
-              {workspaces.map(ws => (
+              {workspaces.length > 5 && (
+                <div className="relative px-1 mb-1">
+                  <Search size={11} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-white/20" />
+                  <input
+                    type="text"
+                    value={wsSearch}
+                    onChange={e => setWsSearch(e.target.value)}
+                    placeholder="Filter workspaces…"
+                    className="w-full bg-white/5 border border-white/10 rounded pl-7 pr-2 py-1 text-xs text-white/70 placeholder:text-white/20 outline-none focus:border-emerald-500/40 transition-colors"
+                  />
+                  {wsSearch && (
+                    <button onClick={() => setWsSearch('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-white/20 hover:text-white/60">
+                      <X size={11} />
+                    </button>
+                  )}
+                </div>
+              )}
+              {workspaces
+                .filter(ws => ws.name.toLowerCase().includes(wsSearch.toLowerCase()))
+                .map(ws => (
                 <div key={ws.id} className="group flex flex-col rounded hover:bg-white/5 transition-colors">
                   <div className="flex items-center gap-2 px-2 py-1.5 cursor-pointer">
                     <button 
@@ -1205,6 +1225,9 @@ export default function App() {
                   )}
                 </div>
               ))}
+              {wsSearch && workspaces.filter(ws => ws.name.toLowerCase().includes(wsSearch.toLowerCase())).length === 0 && (
+                <div className="px-2 py-3 text-center text-[10px] text-white/20 italic">No workspaces match “{wsSearch}”</div>
+              )}
             </div>
             )}
           </div>
