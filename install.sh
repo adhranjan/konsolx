@@ -36,10 +36,15 @@ ASSET_URL=$(curl -fsSL "https://api.github.com/repos/${REPO}/releases/latest" \
 [ -n "${ASSET_URL}" ] || die "Could not find an AppImage in the latest release."
 
 # ── 4. Download ───────────────────────────────────────────────────────────────
+# Download to a temp file, then atomically move into place. This lets you update
+# while Konsolx is running — the mounted (FUSE) AppImage can't be overwritten in
+# place, but a rename relinks the name while the running process keeps its inode.
 mkdir -p "${INSTALL_DIR}" "${DESKTOP_DIR}" "${ICON_DIR}"
 say "Downloading ${APP_NAME}…"
-curl -fsSL "${ASSET_URL}" -o "${APP_PATH}"
-chmod +x "${APP_PATH}"
+TMP_DL="${APP_PATH}.download.$$"
+curl -fsSL "${ASSET_URL}" -o "${TMP_DL}"
+chmod +x "${TMP_DL}"
+mv -f "${TMP_DL}" "${APP_PATH}"
 
 # ── 5. Icon (extract the AppImage's .DirIcon) ─────────────────────────────────
 ICON_PATH="${ICON_DIR}/konsolx.png"
