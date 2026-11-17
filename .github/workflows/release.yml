@@ -7,8 +7,8 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Release version (e.g., 1.0.0)'
-        required: true
+        description: 'Release version (empty = auto-read from package.json)'
+        required: false
         type: string
 
 permissions:
@@ -31,11 +31,15 @@ jobs:
       - name: Create tag for manual release
         if: github.event_name == 'workflow_dispatch'
         run: |
+          VERSION="${{ github.event.inputs.version }}"
+          if [ -z "$VERSION" ]; then
+            VERSION=$(jq -r '.version' package.json)
+          fi
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git tag -a "v${{ github.event.inputs.version }}" -m "Release v${{ github.event.inputs.version }}"
-          git push origin "v${{ github.event.inputs.version }}"
-          echo "RELEASE_TAG=v${{ github.event.inputs.version }}" >> $GITHUB_ENV
+          git tag -a "v${VERSION}" -m "Release v${VERSION}"
+          git push origin "v${VERSION}"
+          echo "RELEASE_TAG=v${VERSION}" >> $GITHUB_ENV
 
       # Icons are committed in build-assets/ — no generation needed.
 
