@@ -5,6 +5,11 @@ on:
     tags:
       - 'v*'   # triggers on v1.0.0, v1.2.3, etc.
   workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version (e.g., 1.0.0)'
+        required: true
+        type: string
 
 permissions:
   contents: write
@@ -22,6 +27,14 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+
+      - name: Create tag for manual release
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag -a "v${{ github.event.inputs.version }}" -m "Release v${{ github.event.inputs.version }}"
+          git push origin "v${{ github.event.inputs.version }}"
 
       # Icons are committed in build-assets/ — no generation needed.
 
