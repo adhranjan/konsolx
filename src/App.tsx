@@ -88,6 +88,8 @@ export default function App() {
   const tabInputsRef = useRef<Map<string, (cmd: string) => void>>(new Map());
   const [apiErrorToast, setApiErrorToast] = useState<{ message: string; kind: 'error' | 'busy' | 'info' } | null>(null);
   const apiErrorTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const tabBarRef = useRef<HTMLDivElement>(null);
+  const tabRefs = useRef<Map<string, HTMLDivElement>>(new Map());
 
   const showToast = (message: string, kind: 'error' | 'busy' | 'info' = 'info', ms = 3500) => {
     if (apiErrorTimer.current) clearTimeout(apiErrorTimer.current);
@@ -212,6 +214,40 @@ export default function App() {
       document.removeEventListener('contextmenu', blockContext);
     };
   }, [serverConfig]);
+
+  // Auto-scroll active tab into view on change or resize
+  useEffect(() => {
+    const scrollActiveTabIntoView = () => {
+      if (!activeTabId || !tabBarRef.current) return;
+      const activeTabEl = tabRefs.current.get(activeTabId);
+      if (!activeTabEl) return;
+
+      const tabBarRect = tabBarRef.current.getBoundingClientRect();
+      const tabRect = activeTabEl.getBoundingClientRect();
+
+      // Check if tab is out of view
+      const isOutOfViewLeft = tabRect.left < tabBarRect.left;
+      const isOutOfViewRight = tabRect.right > tabBarRect.right;
+
+      if (isOutOfViewLeft || isOutOfViewRight) {
+        // Calculate scroll amount to center the tab in view
+        const tabBarScrollLeft = tabBarRef.current.scrollLeft;
+        const tabPositionInBar = activeTabEl.offsetLeft;
+        const targetScroll = tabPositionInBar - (tabBarRef.current.clientWidth / 2) + (activeTabEl.clientWidth / 2);
+
+        tabBarRef.current.scrollTo({
+          left: Math.max(0, targetScroll),
+          behavior: 'smooth'
+        });
+      }
+    };
+
+    scrollActiveTabIntoView();
+
+    // Listen for window resize
+    window.addEventListener('resize', scrollActiveTabIntoView);
+    return () => window.removeEventListener('resize', scrollActiveTabIntoView);
+  }, [activeTabId]);
 
   const getGroupColor = (name: string) => {
     const colors = [
@@ -1341,9 +1377,10 @@ export default function App() {
         )}
 
         {/* Tab Bar */}
-        <div 
+        <div
+          ref={tabBarRef}
           onWheel={handleTabWheel}
-          className="h-12 bg-[#141414] border-b border-white/5 flex items-center px-2 gap-0.5 overflow-x-auto no-scrollbar"
+          className="h-12 bg-[#141414] border-b border-white/5 flex items-center px-2 gap-0.5 overflow-x-auto no-scrollbar scroll-smooth"
         >
           {tabs.map((tab, idx) => {
             const isSameGroup  = idx > 0 && tabs[idx - 1].groupOrder === tab.groupOrder && tab.groupOrder !== undefined;
@@ -1366,12 +1403,50 @@ export default function App() {
                 )}
 
                 <div
-                onClick={() => setActiveTabId(tab.id)}
-                className={`flex flex-col justify-center px-3 py-1 rounded-t-md text-sm cursor-pointer transition-all group min-w-[140px] max-w-[220px] relative border-t-2 ${activeTabId === tab.id ? 'bg-[#0a0a0a] text-white border-x border-white/5' : 'text-white/40 hover:bg-white/5 border-transparent'} ${isSameGroup ? 'ml-0' : 'ml-1'}`}
-                style={{ borderTopColor: tab.groupColor || 'transparent' }}
+                ref={(el) => {
+                  if (el) tabRefs.current.set(tab.id, el);
+                  else tabRefs.current.delete(tab.id);
+                }}
+                onClick={(e) => {
+                  if (e.button === 1) {
+                    // Middle mouse button — close tab
+                    e.preventDefault();
+                    closeTab(tab.id);
+                  } else if (e.button === 0) {
+                    // Left mouse button — select tab
+                    setActiveTabId(tab.id);
+                  }
+                }}
+                onAuxClick={(e) => {
+                  // Also handle auxclick for middle button
+                  if (e.button === 1) {
+                    e.preventDefault();
+                    closeTab(tab.id);
+                  }
+                }}
+                className={`flex flex-col justify-center px-3 py-1 rounded-t-md text-sm cursor-pointer transition-all group min-w-[140px] max-w-[220px] relative border-t-4 ${
+                  activeTabId === tab.id
+                    ? 'bg-gradient-to-b from-[#2a2a2a] to-[#1a1a1a] text-white font-semibold border-x-2 border-b-4 shadow-xl tab-active-highlight'
+                    : 'text-white/20 hover:bg-white/3 border-transparent border-t'
+                } ${isSameGroup ? 'ml-0' : 'ml-1'}`}
+                style={{
+                  borderTopColor: tab.groupColor || 'transparent',
+                  ...(activeTabId === tab.id ? {
+                    borderBottomColor: tab.groupColor || '#10b981',
+                    borderLeftColor: tab.groupColor || '#10b981',
+                    borderRightColor: tab.groupColor || '#10b981',
+                    boxShadow: `
+                      0 0 20px ${tab.groupColor || '#10b981'}60,
+                      0 0 40px ${tab.groupColor || '#10b981'}40,
+                      0 -4px 0 ${tab.groupColor || '#10b981'}80,
+                      0 4px 0 ${tab.groupColor || '#10b981'}60,
+                      inset 0 0 8px ${tab.groupColor || '#10b981'}20
+                    `
+                  } : {})
+                }}
               >
                 <div className="flex items-center gap-2">
-                  <TerminalIcon size={12} className={activeTabId === tab.id ? 'text-emerald-500' : ''} />
+                  <TerminalIcon size={12} className={activeTabId === tab.id ? 'text-emerald-300 drop-shadow-lg drop-shadow-emerald-500/50 font-bold' : ''} />
                   <div className="flex flex-col min-w-0 flex-1">
                     {editingTabTitleId === tab.id ? (
                       <input
