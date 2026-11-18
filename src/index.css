@@ -88,11 +88,4 @@ body {
   width: 100% !important;
 }
 
-/* Active tab subtle pulse glow */
-@keyframes tab-active-pulse {
-  0%, 100% { filter: brightness(1); }
-  50% { filter: brightness(1.15); }
-}
-.tab-active-highlight {
-  animation: tab-active-pulse 2.5s ease-in-out infinite;
-}
+/* Active tab styling — no pulse animation */

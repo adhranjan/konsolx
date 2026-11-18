@@ -1424,29 +1424,20 @@ export default function App() {
                     closeTab(tab.id);
                   }
                 }}
-                className={`flex flex-col justify-center px-3 py-1 rounded-t-md text-sm cursor-pointer transition-all group min-w-[140px] max-w-[220px] relative border-t-4 ${
+                className={`flex flex-col justify-center px-3 py-1 rounded-t-md text-sm cursor-pointer transition-all group min-w-[140px] max-w-[220px] relative border-t-2 ${
                   activeTabId === tab.id
-                    ? 'bg-gradient-to-b from-[#2a2a2a] to-[#1a1a1a] text-white font-semibold border-x-2 border-b-4 shadow-xl tab-active-highlight'
-                    : 'text-white/20 hover:bg-white/3 border-transparent border-t'
+                    ? 'bg-[#1a1a1a] text-white font-semibold border-b border-white/5'
+                    : 'text-white/20 hover:bg-white/2 border-transparent border-b border-white/0'
                 } ${isSameGroup ? 'ml-0' : 'ml-1'}`}
                 style={{
                   borderTopColor: tab.groupColor || 'transparent',
                   ...(activeTabId === tab.id ? {
-                    borderBottomColor: tab.groupColor || '#10b981',
-                    borderLeftColor: tab.groupColor || '#10b981',
-                    borderRightColor: tab.groupColor || '#10b981',
-                    boxShadow: `
-                      0 0 20px ${tab.groupColor || '#10b981'}60,
-                      0 0 40px ${tab.groupColor || '#10b981'}40,
-                      0 -4px 0 ${tab.groupColor || '#10b981'}80,
-                      0 4px 0 ${tab.groupColor || '#10b981'}60,
-                      inset 0 0 8px ${tab.groupColor || '#10b981'}20
-                    `
+                    boxShadow: `0 2px 8px ${tab.groupColor || '#10b981'}20`
                   } : {})
                 }}
               >
                 <div className="flex items-center gap-2">
-                  <TerminalIcon size={12} className={activeTabId === tab.id ? 'text-emerald-300 drop-shadow-lg drop-shadow-emerald-500/50 font-bold' : ''} />
+                  <TerminalIcon size={12} className={activeTabId === tab.id ? 'text-emerald-400/70' : ''} />
                   <div className="flex flex-col min-w-0 flex-1">
                     {editingTabTitleId === tab.id ? (
                       <input
